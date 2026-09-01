@@ -1,0 +1,2424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eurolux Doors and Windows, Cut Optimization</title>
+<meta name="description" content="Eurolux Doors and Windows, Cut Optimization — SCHUCO profile cutting-stock optimisation, works offline, no data leaves your device.">
+<meta name="theme-color" content="#cf5322" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14181c" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Eurolux Doors and Windows, Cut Optimization">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Palette note: cool brushed-steel neutrals (blue-biased grey) paired with a
+     single warm "cut-mark" burnt-orange accent — the colour a fabricator's
+     marker pen leaves on aluminium to show where the blade goes. Amber/green/red
+     are semantic status colours and stay independent of the accent hue. */
+  :root{
+    --bg:#eef0f2; --panel:#ffffff; --panel-2:#f4f6f8; --border:#dbdfe3;
+    --text:#1b2126; --text-dim:#5a636b; --text-faint:#8a939b;
+    --accent:#cf5322; --accent-2:#a53f16; --accent-soft:#fbe7da;
+    --amber:#af7f16; --amber-soft:#f8edd8;
+    --green:#1f8a4c; --green-soft:#e5f6ec;
+    --red:#c23b3b; --red-soft:#fbe9e9;
+    --shadow:0 1px 2px rgba(20,30,40,.06), 0 4px 14px rgba(20,30,40,.06);
+    --radius:10px;
+    --display: 'Barlow Semi Condensed', 'Arial Narrow', Oswald, sans-serif;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14181c; --panel:#1b2025; --panel-2:#20262b; --border:#2c333a;
+      --text:#eceff1; --text-dim:#a6afb8; --text-faint:#707980;
+      --accent:#ff8144; --accent-2:#ffab7a; --accent-soft:#3b2115;
+      --amber:#dcab45; --amber-soft:#392c11;
+      --green:#4bcf87; --green-soft:#123423;
+      --red:#e8716f; --red-soft:#3a1a1a;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14181c; --panel:#1b2025; --panel-2:#20262b; --border:#2c333a;
+    --text:#eceff1; --text-dim:#a6afb8; --text-faint:#707980;
+    --accent:#ff8144; --accent-2:#ffab7a; --accent-soft:#3b2115;
+    --amber:#dcab45; --amber-soft:#392c11;
+    --green:#4bcf87; --green-soft:#123423;
+    --red:#e8716f; --red-soft:#3a1a1a;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:var(--sans); margin:0;}
+  #app{max-width:1180px; margin:0 auto; padding:16px 16px 80px;}
+  h1,h2,h3,h4{margin:0; font-family:var(--display); font-weight:650; text-wrap:balance;}
+  button{font-family:inherit; cursor:pointer;}
+  input,select,textarea{font-family:inherit;}
+  table{border-collapse:collapse; width:100%;}
+  a{color:var(--accent);}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:8px;
+    border:1px solid var(--border); background:var(--panel); color:var(--text); font-family:var(--display);
+    font-size:14.5px; font-weight:600; letter-spacing:.01em;
+    transition:filter .12s, background .12s; white-space:nowrap;
+  }
+  .btn:hover{filter:brightness(0.97);}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .btn:hover{filter:brightness(1.15);} }
+  :root[data-theme="dark"] .btn:hover{filter:brightness(1.15);}
+  .btn:active{transform:translateY(1px);}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.primary:hover{filter:brightness(1.06);}
+  .btn.ghost{background:transparent;}
+  .btn.danger{color:var(--red); border-color:var(--red);}
+  .btn.sm{padding:5px 10px; font-size:12.5px; border-radius:7px;}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
+  .btn svg{width:14px; height:14px; flex:none;}
+
+  .icon-btn{
+    display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px;
+    border-radius:8px; border:1px solid var(--border); background:var(--panel); color:var(--text-dim);
+  }
+  .icon-btn:hover{color:var(--text); background:var(--panel-2);}
+  .icon-btn svg{width:16px; height:16px;}
+
+  .topbar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 0 12px; margin-bottom:6px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand{display:flex; align-items:center; gap:9px; margin-right:6px;}
+  .brand .logo{
+    width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    display:flex; align-items:center; justify-content:center; color:#fff; flex:none;
+  }
+  .brand .logo svg{width:18px; height:18px;}
+  .brand-text{display:flex; flex-direction:column; line-height:1.15;}
+  .brand-text b{font-family:var(--display); font-size:17px; font-weight:650; letter-spacing:.01em;}
+  .brand-text span{font-size:11px; color:var(--text-faint);}
+
+  .proj-select{
+    padding:7px 10px; border-radius:8px; border:1px solid var(--border); background:var(--panel);
+    color:var(--text); font-size:13.5px; font-weight:560; max-width:220px;
+  }
+  .spacer{flex:1;}
+  .topbar-right{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+
+  .tabs{display:flex; gap:6px; margin:16px 0 14px;}
+  .tab-btn{
+    padding:8px 16px; border-radius:8px; border:1px solid transparent; background:transparent;
+    color:var(--text-dim); font-family:var(--display); font-size:15px; font-weight:600; letter-spacing:.01em;
+  }
+  .tab-btn.active{background:var(--panel); border-color:var(--border); color:var(--text); box-shadow:var(--shadow);}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:16px; margin-bottom:16px;
+  }
+  .dash-hero{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; background:linear-gradient(135deg, var(--accent-soft), var(--panel) 65%);}
+  .card-head{display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;}
+  .card-head h3{font-size:14.5px;}
+  .card-head .hint{font-size:12px; color:var(--text-faint); font-weight:500;}
+  .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+
+  .toolbar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
+
+  .field{display:flex; flex-direction:column; gap:4px;}
+  .field label{font-size:11.5px; color:var(--text-faint); font-weight:650; text-transform:uppercase; letter-spacing:.03em;}
+  .field input, .field select{
+    padding:7px 9px; border-radius:7px; border:1px solid var(--border); background:var(--panel-2); color:var(--text);
+    font-size:13.5px; width:100%;
+  }
+  .field input:focus, .field select:focus, table input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+
+  .settings-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px;}
+
+  table.data{font-size:13px;}
+  table.data th{
+    text-align:left; font-family:var(--display); font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint);
+    font-weight:600; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap;
+  }
+  table.data td{padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  table.data tbody tr:hover{background:var(--panel-2);}
+  #savedJobsTableWrap table.data tbody tr{cursor:pointer;}
+  #savedJobsTableWrap table.data tbody tr td:last-child{cursor:default;}
+  table.data input, table.data select{
+    width:100%; padding:6px 7px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text);
+    font-size:13px;
+  }
+  table.data input:hover, table.data select:hover{border-color:var(--border);}
+  table.data input:focus, table.data select:focus{border-color:var(--accent); background:var(--panel-2);}
+  table.data .num{text-align:right;}
+  table.data .num input{text-align:right;}
+  table.data input[data-field="length"], table.data input[data-field="qty"]{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+  .row-del{
+    width:26px; height:26px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-faint);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .row-del:hover{color:var(--red); background:var(--red-soft); border-color:var(--red);}
+  .row-del svg{width:14px; height:14px;}
+
+  .empty-state{
+    text-align:center; padding:36px 20px; color:var(--text-faint); font-size:13.5px;
+  }
+  .empty-state svg{width:34px; height:34px; margin-bottom:10px; opacity:.5;}
+
+  .totals-bar{display:flex; gap:22px; flex-wrap:wrap; padding:10px 4px 2px; font-size:12.5px; color:var(--text-dim);}
+  .totals-bar b{color:var(--text); font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:14px;}
+
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:10px; margin-bottom:4px;}
+  .stat-box{background:var(--panel-2); border:1px solid var(--border); border-radius:9px; padding:11px 13px;}
+  .stat-box .label{font-family:var(--display); font-size:12px; color:var(--text-faint); font-weight:600; text-transform:uppercase; letter-spacing:.04em;}
+  .stat-box .value{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:20px; font-weight:600; margin-top:3px;}
+  .stat-box .sub{font-size:11.5px; color:var(--text-dim); margin-top:1px;}
+  .stat-box.accent .value{color:var(--accent);}
+  .stat-box.warn .value{color:var(--amber);}
+  .stat-box.good .value{color:var(--green);}
+
+  .profile-card{border:1px solid var(--border); border-radius:9px; margin-bottom:10px; overflow:hidden; background:var(--panel);}
+  .profile-head{
+    display:flex; align-items:center; gap:12px; padding:11px 14px; cursor:pointer; user-select:none; flex-wrap:wrap;
+  }
+  .profile-head:hover{background:var(--panel-2);}
+  .profile-head .chev{width:16px; height:16px; color:var(--text-faint); transition:transform .15s; flex:none;}
+  .profile-card.open .chev{transform:rotate(90deg);}
+  .profile-head .titles{display:flex; flex-direction:column; gap:1px; min-width:170px;}
+  .profile-head .titles b{font-family:var(--mono); font-size:14.5px; font-weight:600; letter-spacing:.01em;}
+  .profile-head .titles span{font-size:11.5px; color:var(--text-faint);}
+  .profile-head .metrics{display:flex; gap:16px; margin-left:auto; flex-wrap:wrap;}
+  .profile-head .metric{font-family:var(--display); font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-dim); text-align:right;}
+  .profile-head .metric b{display:block; font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:14.5px; font-weight:600; color:var(--text); text-transform:none; letter-spacing:0;}
+  .pill{display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:11.5px; font-weight:600;}
+  .pill.good{background:var(--green-soft); color:var(--green);}
+  .pill.warn{background:var(--amber-soft); color:var(--amber);}
+  .pill.bad{background:var(--red-soft); color:var(--red);}
+  .profile-body{display:none; padding:4px 14px 14px; border-top:1px solid var(--border);}
+  .profile-card.open .profile-body{display:block;}
+
+  .layout-card{background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin:10px 0;}
+  .layout-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;}
+  .layout-head .badge{
+    display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:7px;
+    background:var(--accent); color:#fff; font-family:var(--display); font-weight:700; font-size:13.5px; flex:none;
+  }
+  .layout-head b.rep{font-family:var(--display); font-size:14px; font-weight:600;}
+  .layout-head .stockinfo{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:12px; color:var(--text-dim); margin-left:auto;}
+  .bar-visual{
+    display:flex; width:100%; height:38px; border-radius:6px; overflow:hidden; border:1px solid var(--border); background:repeating-linear-gradient(45deg, var(--panel), var(--panel) 6px, var(--panel-2) 6px, var(--panel-2) 12px);
+  }
+  .bar-seg{
+    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-variant-numeric:tabular-nums;
+    font-size:10.5px; line-height:1.2; color:#fff; font-weight:600;
+    border-right:1px solid rgba(0,0,0,.18); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding:0 3px;
+    position:relative;
+  }
+  .bar-seg.remnant{background:transparent !important; color:var(--text-faint); font-weight:500; border-right:none;}
+  .bar-seg .seg-tip{
+    position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); background:var(--text); color:var(--bg);
+    padding:4px 7px; border-radius:6px; font-family:var(--sans); font-size:11px; white-space:nowrap; display:none; z-index:5; font-weight:600;
+  }
+  .bar-seg:hover .seg-tip{display:block;}
+  .kerf-tick{
+    flex:0 0 4px; min-width:4px; max-width:4px; border-right:none;
+    background:repeating-linear-gradient(135deg,#1b1b1d,#1b1b1d 1px,#57575c 1px,#57575c 2px);
+    cursor:default;
+  }
+  .kerf-tick .seg-tip{bottom:calc(100% + 6px);}
+  .bar-caption{margin-top:6px; font-size:11px; color:var(--text-faint); display:flex; align-items:center; gap:6px;}
+  .bar-caption .tick-swatch{display:inline-block; width:10px; height:10px; border-radius:2px; background:repeating-linear-gradient(135deg,#1b1b1d,#1b1b1d 1px,#57575c 1px,#57575c 2px); flex:none;}
+  .layout-parts{margin-top:9px; font-size:12px; color:var(--text-dim);}
+  .layout-parts table{font-size:12px;}
+  .layout-parts th{text-align:left; color:var(--text-faint); font-family:var(--display); font-weight:600; padding:3px 6px; text-transform:uppercase; font-size:10.5px; letter-spacing:.04em;}
+  .layout-parts td{padding:3px 6px; border-top:1px solid var(--border);}
+  .layout-parts td:first-child{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+  .layout-stats{display:flex; gap:16px; flex-wrap:wrap; margin-top:9px; font-size:11.5px; color:var(--text-dim);}
+  .layout-stats b{color:var(--text); font-family:var(--mono); font-variant-numeric:tabular-nums;}
+
+  .alert{border-radius:8px; padding:10px 13px; font-size:13px; margin-bottom:12px; display:flex; gap:9px; align-items:flex-start;}
+  .alert.err{background:var(--red-soft); color:var(--red); border:1px solid color-mix(in srgb, var(--red) 35%, transparent);}
+  .alert.info{background:var(--accent-soft); color:var(--accent-2); border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);}
+  .alert svg{width:16px; height:16px; flex:none; margin-top:1px;}
+
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(10,15,20,.5); display:none; align-items:center; justify-content:center;
+    z-index:50; padding:16px;
+  }
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--panel); border-radius:12px; border:1px solid var(--border); box-shadow:var(--shadow); width:100%; max-width:480px; max-height:88vh; overflow:auto;}
+  .modal-head{display:flex; align-items:center; padding:15px 18px; border-bottom:1px solid var(--border);}
+  .modal-head h3{font-size:15px;}
+  .modal-body{padding:16px 18px;}
+  .modal-foot{display:flex; justify-content:flex-end; gap:8px; padding:14px 18px; border-top:1px solid var(--border);}
+  .modal-close{margin-left:auto; width:28px; height:28px; border-radius:7px; border:none; background:transparent; color:var(--text-faint); display:flex; align-items:center; justify-content:center;}
+  .modal-close:hover{background:var(--panel-2); color:var(--text);}
+  .modal-close svg{width:16px; height:16px;}
+
+  .menu-item{display:block; width:100%; text-align:left; padding:9px 13px; border:none; background:transparent; color:var(--text); font-size:13px;}
+  .menu-item:hover{background:var(--panel-2);}
+  .menu-item.danger{color:var(--red);}
+
+  .footer-note{text-align:center; color:var(--text-faint); font-size:11.5px; margin-top:24px; line-height:1.6;}
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--bg);
+    padding:9px 16px; border-radius:8px; font-size:13px; font-weight:600; box-shadow:var(--shadow); z-index:100;
+    opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(-6px);}
+
+  @media (max-width:640px){
+    .profile-head .metrics{width:100%; margin-left:0; justify-content:space-between; margin-top:4px;}
+    .topbar{gap:8px;}
+    #app{padding:10px 10px 70px;}
+  }
+</style>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4.2" width="8" height="3.6" rx="1.8"/><rect x="13" y="4.2" width="8" height="3.6" rx="1.8"/><rect x="3" y="10.2" width="13" height="3.6" rx="1.8"/><rect x="18" y="10.2" width="3" height="3.6" rx="1.5" opacity=".55"/><rect x="3" y="16.2" width="5" height="3.6" rx="1.8"/><rect x="10" y="16.2" width="11" height="3.6" rx="1.8"/></svg>
+      </div>
+      <div class="brand-text">
+        <b>Eurolux Doors and Windows</b>
+        <span>Cut Optimization for SCHUCO profiles</span>
+      </div>
+    </div>
+    <select id="projectSelect" class="proj-select" title="Job / project"></select>
+    <button class="icon-btn" id="btnNewProject" title="New job">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <div class="spacer"></div>
+    <div class="topbar-right">
+      <div style="position:relative;">
+        <button class="btn ghost sm" id="btnProjectMenu">Job actions ▾</button>
+        <div id="projectMenu" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:var(--panel); border:1px solid var(--border); border-radius:9px; box-shadow:var(--shadow); min-width:190px; z-index:40; overflow:hidden;">
+          <button class="menu-item" data-action="rename">Rename job</button>
+          <button class="menu-item" data-action="duplicate">Duplicate job</button>
+          <button class="menu-item" data-action="save-json">Save job as file (.json)</button>
+          <button class="menu-item" data-action="load-json">Load job from file (.json)</button>
+          <button class="menu-item danger" data-action="delete">Delete job</button>
+        </div>
+      </div>
+      <button class="icon-btn" id="btnSettings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="btnTheme" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="parts">Parts List</button>
+    <button class="tab-btn" data-tab="results">Results</button>
+    <button class="tab-btn" data-tab="stock">Stock</button>
+  </div>
+
+  <!-- ============= DASHBOARD TAB ============= -->
+  <div class="tab-panel active" id="tab-dashboard">
+    <div class="card dash-hero">
+      <div>
+        <h3 style="font-size:19px;">Start a new cutting optimisation</h3>
+        <p class="hint" style="margin-top:4px;">Creates a fresh job — add or import parts, then optimise.</p>
+      </div>
+      <button class="btn primary" id="btnDashNewOpt" style="padding:12px 26px; font-size:15px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        New optimisation
+      </button>
+    </div>
+
+    <div class="row" style="gap:10px; margin-bottom:16px;">
+      <button class="btn" id="btnDashSettings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Job settings
+      </button>
+      <button class="btn" id="btnDashStock">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2M3 8h18M3 8v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8M8 12h8"/></svg>
+        Stock register
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Saved jobs</h3>
+        <span class="hint">All jobs stored in this browser</span>
+      </div>
+      <div id="savedJobsTableWrap"></div>
+    </div>
+  </div>
+
+  <!-- ============= STOCK TAB ============= -->
+  <div class="tab-panel" id="tab-stock">
+    <div class="card">
+      <div class="card-head">
+        <h3>Stock register</h3>
+        <span class="hint">Bars on hand per profile (Article No.) — shared across every job. New profiles start at 100 bars automatically.</span>
+      </div>
+      <div class="toolbar">
+        <button class="btn primary sm" id="btnStockAdd">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          Add profile
+        </button>
+      </div>
+      <div id="stockTableWrap"></div>
+    </div>
+  </div>
+
+  <!-- ============= PARTS TAB ============= -->
+  <div class="tab-panel" id="tab-parts">
+
+    <div class="row" style="justify-content:center; margin:0 0 16px;">
+      <button class="btn primary" id="btnOptimizeTop" style="padding:12px 28px; font-size:14.5px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+        Optimise cutting layout
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Cutting list</h3>
+        <span class="hint">Add each part once — every profile (Article No.) is optimised as its own set of stock bars</span>
+      </div>
+      <div class="toolbar">
+        <button class="btn primary sm" id="btnAddRow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          Add part
+        </button>
+        <button class="btn sm" id="btnPaste">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+          Paste rows
+        </button>
+        <button class="btn sm" id="btnImportExcel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+          Import Excel
+        </button>
+        <input type="file" id="fileExcel" accept=".xlsx,.xls" style="display:none">
+        <span class="spacer"></span>
+        <button class="btn ghost sm danger" id="btnClearParts">Clear all</button>
+      </div>
+
+      <div id="partsTableWrap">
+        <!-- rendered by JS -->
+      </div>
+
+      <div class="totals-bar" id="partsTotals"></div>
+    </div>
+
+    <div class="card" id="profilesCard" style="display:none;">
+      <div class="card-head">
+        <h3>Profiles found</h3>
+        <span class="hint">Override stock length or cost per bar for a specific profile — otherwise the job defaults are used</span>
+      </div>
+      <div id="profilesTableWrap"></div>
+    </div>
+
+    <div class="row" style="justify-content:center; margin:22px 0 10px;">
+      <button class="btn primary" id="btnOptimize" style="padding:12px 28px; font-size:14.5px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+        Optimise cutting layout
+      </button>
+    </div>
+  </div>
+
+  <!-- ============= RESULTS TAB ============= -->
+  <div class="tab-panel" id="tab-results">
+    <div class="row" id="resultsToolbar" style="display:none; margin-bottom:14px;">
+      <span class="spacer"></span>
+      <button class="btn sm" id="btnExportExcel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Export Excel
+      </button>
+      <button class="btn sm" id="btnExportPdf">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Export PDF report
+      </button>
+    </div>
+    <div id="resultsContent">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 21V3M16 21V3"/></svg>
+        <div>Add parts and run <b>Optimise cutting layout</b> to see results here.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Everything is saved on this device only (no data leaves your browser). Use Job actions → Save/Load to back up or move a job between devices.
+    <br>Developed with love by Uncle Ed OmoRegie, Version 4.20 - AUGUST 2026
+  </div>
+</div>
+
+<!-- ===== Settings modal ===== -->
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Job settings</h3>
+      <button class="modal-close" id="closeSettings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-grid">
+        <div class="field">
+          <label>Default stock length(s) mm</label>
+          <input type="text" id="setStockLengths" placeholder="e.g. 6000 or 6000,5800">
+        </div>
+        <div class="field">
+          <label>Kerf / blade width mm</label>
+          <input type="number" id="setKerf" min="0" step="0.1">
+        </div>
+        <div class="field">
+          <label>Lead-in / squaring trim mm</label>
+          <input type="number" id="setLeadIn" min="0" step="0.1">
+        </div>
+        <div class="field">
+          <label>Currency symbol</label>
+          <input type="text" id="setCurrency" placeholder="AED">
+        </div>
+      </div>
+      <p style="font-size:12px; color:var(--text-dim); margin-top:14px; line-height:1.6;">
+        Multiple stock lengths are tried automatically — the optimiser picks whichever combination uses the least material. Kerf is charged once per cut (matches standard cut-list report conventions).
+      </p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelSettings">Cancel</button>
+      <button class="btn primary" id="saveSettings">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Paste modal ===== -->
+<div class="modal-backdrop" id="pasteModal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head">
+      <h3>Paste rows</h3>
+      <button class="modal-close" id="closePaste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12.5px; color:var(--text-dim); margin:0 0 10px;">
+        Paste tab or comma separated rows copied from Excel: <code>Article No, Description, Length(mm), Qty</code> (Description and Qty are optional — Qty defaults to 1).
+      </p>
+      <textarea id="pasteArea" rows="10" style="width:100%; padding:9px; border-radius:8px; border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-family:var(--mono); font-size:12.5px;" placeholder="557400	Outer Frame Top	1760	1
+557400	Outer Frame Left / Right	2350	2"></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelPaste">Cancel</button>
+      <button class="btn primary" id="applyPaste">Add rows</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Rename modal ===== -->
+<div class="modal-backdrop" id="renameModal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-head">
+      <h3 id="renameModalTitle">Rename job</h3>
+      <button class="modal-close" id="closeRename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Job name</label><input type="text" id="renameInput"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelRename">Cancel</button>
+      <button class="btn primary" id="confirmRename">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Add stock profile modal ===== -->
+<div class="modal-backdrop" id="stockAddModal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-head">
+      <h3>Add profile to stock</h3>
+      <button class="modal-close" id="closeStockAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-grid">
+        <div class="field"><label>Article No.</label><input type="text" id="stockAddArticle" placeholder="e.g. 557400"></div>
+        <div class="field"><label>Starting qty (bars)</label><input type="number" id="stockAddQty" value="100" min="0" step="1"></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Description</label><input type="text" id="stockAddDesc" placeholder="optional"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelStockAdd">Cancel</button>
+      <button class="btn primary" id="confirmStockAdd">Add</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileProjectJson" accept="application/json" style="display:none">
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+/**
+ * 1D Cutting Stock Optimizer
+ * Variable-stock-size Best-Fit-Decreasing heuristic with per-cut kerf allowance.
+ * Mirrors the accounting convention used by opticutter-style reports:
+ * every piece placed on a bar consumes (length + kerf) of that bar's capacity
+ * (i.e. kerf is charged per cut, not per gap), and any small fixed "lead-in"
+ * trim can optionally be reserved once per bar.
+ *
+ * Exposed as a global `CutOptimizer` object (script-tag friendly, no bundler).
+ */
+(function (root) {
+  'use strict';
+
+  /**
+   * @param {Array<{id:string, label:string, length:number, qty:number}>} parts
+   * @param {Array<number>} stockLengths - available raw stock lengths (mm), any order
+   * @param {Object} options
+   * @param {number} options.kerf - blade thickness / kerf, consumed once per cut
+   * @param {number} [options.leadIn=0] - fixed allowance reserved once per bar (e.g. squaring cut)
+   * @returns {Object} result
+   */
+  function optimize(parts, stockLengths, options) {
+    options = options || {};
+    var kerf = Number(options.kerf) || 0;
+    var leadIn = Number(options.leadIn) || 0;
+    var sizes = (stockLengths || []).map(Number).filter(function (n) { return n > 0; });
+    sizes.sort(function (a, b) { return a - b; });
+
+    var errors = [];
+    var pieces = [];
+    (parts || []).forEach(function (p) {
+      var len = Number(p.length);
+      var qty = Math.max(0, Math.floor(Number(p.qty) || 0));
+      if (!(len > 0) || qty <= 0) return;
+      var needed = len + kerf;
+      var fitsAny = sizes.some(function (s) { return s - leadIn >= needed; });
+      if (!fitsAny) {
+        errors.push({
+          partId: p.id, label: p.label, length: len, qty: qty,
+          message: 'Part length ' + len + 'mm (+' + kerf + 'mm kerf) does not fit any available stock length.'
+        });
+        return;
+      }
+      for (var i = 0; i < qty; i++) {
+        pieces.push({ partId: p.id, label: p.label, length: len });
+      }
+    });
+
+    // Sort descending by length (Best-Fit-Decreasing)
+    pieces.sort(function (a, b) { return b.length - a.length; });
+
+    var bins = []; // { stockLength, remaining, pieces:[{label,length}] }
+
+    pieces.forEach(function (piece) {
+      var need = piece.length + kerf;
+      var bestBin = null;
+      var bestLeftover = Infinity;
+
+      for (var i = 0; i < bins.length; i++) {
+        var b = bins[i];
+        var leftover = b.remaining - need;
+        if (leftover >= 0 && leftover < bestLeftover) {
+          bestLeftover = leftover;
+          bestBin = b;
+        }
+      }
+
+      if (bestBin) {
+        bestBin.pieces.push(piece);
+        bestBin.remaining -= need;
+        return;
+      }
+
+      // Open a new bin: smallest stock length that fits this piece (minus lead-in)
+      var chosen = null;
+      for (var j = 0; j < sizes.length; j++) {
+        if (sizes[j] - leadIn >= need) { chosen = sizes[j]; break; }
+      }
+      // Should always be found because we pre-validated fitsAny above,
+      // but guard defensively just in case.
+      if (chosen == null) chosen = sizes[sizes.length - 1];
+
+      var newBin = { stockLength: chosen, remaining: chosen - leadIn - need, pieces: [piece] };
+      bins.push(newBin);
+    });
+
+    // ---- Group identical bins into "layouts" with a repetition count ----
+    var layoutMap = {}; // signature -> layout
+    var layoutOrder = [];
+
+    bins.forEach(function (b) {
+      var sortedPieces = b.pieces.slice().sort(function (x, y) {
+        if (y.length !== x.length) return y.length - x.length;
+        return (x.label || '').localeCompare(y.label || '');
+      });
+      var sig = b.stockLength + '|' + sortedPieces.map(function (p) { return p.length + ':' + (p.label || ''); }).join(',');
+
+      if (!layoutMap[sig]) {
+        layoutMap[sig] = {
+          signature: sig,
+          stockLength: b.stockLength,
+          repetition: 0,
+          pieces: sortedPieces
+        };
+        layoutOrder.push(sig);
+      }
+      layoutMap[sig].repetition += 1;
+    });
+
+    // Order layouts by stock length desc, then used length desc, then part count desc
+    var layouts = layoutOrder.map(function (sig) { return layoutMap[sig]; });
+    layouts.sort(function (a, b) {
+      if (b.stockLength !== a.stockLength) return b.stockLength - a.stockLength;
+      var usedA = a.pieces.reduce(function (s, p) { return s + p.length; }, 0);
+      var usedB = b.pieces.reduce(function (s, p) { return s + p.length; }, 0);
+      if (usedB !== usedA) return usedB - usedA;
+      return b.pieces.length - a.pieces.length;
+    });
+
+    // Assign layout IDs A, B, C ... AA, AB ... and compute per-layout stats
+    layouts.forEach(function (layout, idx) {
+      layout.id = numberToLetters(idx);
+      var used = layout.pieces.reduce(function (s, p) { return s + p.length; }, 0);
+      var cuts = layout.pieces.length;
+      var kerfWaste = cuts * kerf;
+      layout.usedLength = used;
+      layout.cuts = cuts;
+      layout.kerfWaste = kerfWaste;
+      layout.remnant = layout.stockLength - leadIn - used - kerfWaste;
+      layout.wastePct = layout.stockLength > 0 ? ((layout.stockLength - used) / layout.stockLength) * 100 : 0;
+    });
+
+    // ---- Aggregate stats ----
+    var requiredStocksMap = {};
+    layouts.forEach(function (l) {
+      requiredStocksMap[l.stockLength] = (requiredStocksMap[l.stockLength] || 0) + l.repetition;
+    });
+    var requiredStocks = Object.keys(requiredStocksMap)
+      .map(Number)
+      .sort(function (a, b) { return b - a; })
+      .map(function (len) { return { stockLength: len, quantity: requiredStocksMap[len] }; });
+
+    var totalBars = layouts.reduce(function (s, l) { return s + l.repetition; }, 0);
+    var totalPartsLength = pieces.reduce(function (s, p) { return s + p.length; }, 0);
+    var totalPartsCount = pieces.length;
+    var usedStocksTotalLength = layouts.reduce(function (s, l) { return s + l.stockLength * l.repetition; }, 0);
+    var totalCuts = layouts.reduce(function (s, l) { return s + l.cuts * l.repetition; }, 0);
+    var totalKerfWaste = layouts.reduce(function (s, l) { return s + l.kerfWaste * l.repetition; }, 0);
+    var totalRemnant = layouts.reduce(function (s, l) { return s + l.remnant * l.repetition; }, 0);
+    var yieldPct = usedStocksTotalLength > 0 ? (totalPartsLength / usedStocksTotalLength) * 100 : 0;
+
+    return {
+      kerf: kerf,
+      leadIn: leadIn,
+      layouts: layouts,
+      requiredStocks: requiredStocks,
+      totalBars: totalBars,
+      totalPartsLength: totalPartsLength,
+      totalPartsCount: totalPartsCount,
+      usedStocksTotalLength: usedStocksTotalLength,
+      totalCuts: totalCuts,
+      totalKerfWaste: totalKerfWaste,
+      totalRemnant: totalRemnant,
+      totalWaste: totalKerfWaste + totalRemnant,
+      yieldPct: yieldPct,
+      errors: errors
+    };
+  }
+
+  /**
+   * Group a flat parts list by an arbitrary key (e.g. Article No.) and run
+   * optimize() independently for each group, since different profiles are
+   * different physical stock and must be cut separately.
+   *
+   * @param {Array} parts - each part must include a `group` field (e.g. article no.)
+   * @param {Function} stockLengthsForGroup - (groupKey) => Array<number>
+   * @param {Function} optionsForGroup - (groupKey) => options object for optimize()
+   */
+  function optimizeByGroup(parts, stockLengthsForGroup, optionsForGroup) {
+    var groups = {};
+    var groupOrder = [];
+    (parts || []).forEach(function (p) {
+      var key = p.group == null ? '' : String(p.group);
+      if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+      groups[key].push(p);
+    });
+
+    var results = groupOrder.map(function (key) {
+      var groupParts = groups[key];
+      var stockLengths = stockLengthsForGroup(key, groupParts);
+      var options = optionsForGroup(key, groupParts);
+      var result = optimize(groupParts, stockLengths, options);
+      return {
+        group: key,
+        groupLabel: groupParts[0] && groupParts[0].groupLabel ? groupParts[0].groupLabel : key,
+        parts: groupParts,
+        result: result
+      };
+    });
+
+    return results;
+  }
+
+  function numberToLetters(n) {
+    // 0 -> A, 1 -> B, ... 25 -> Z, 26 -> AA, ...
+    var s = '';
+    n = n + 1;
+    while (n > 0) {
+      var rem = (n - 1) % 26;
+      s = String.fromCharCode(65 + rem) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  var CutOptimizer = { optimize: optimize, optimizeByGroup: optimizeByGroup };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = CutOptimizer;
+  } else {
+    root.CutOptimizer = CutOptimizer;
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+/* Excel import logic - shared between node test harness and browser build.
+   Expects a global XLSX (SheetJS) to already be loaded. */
+(function (root) {
+  'use strict';
+
+  function normHeader(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+
+  function sheetToRows(ws) {
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  }
+
+  // Look for the "combined multi-item" layout used by many fabrication cut-lists:
+  //   one header row with "Article No." / "Desciption"/"Description"
+  //   a nearby row with "Item 1", "Item 2", ... sub-headers + a "Qty" column
+  function detectTailoredHeader(rows) {
+    var maxScan = Math.min(rows.length, 15);
+    for (var r = 0; r < maxScan; r++) {
+      var row = rows[r] || [];
+      var articleCol = -1, descCol = -1;
+      row.forEach(function (cell, c) {
+        var h = normHeader(cell);
+        if (articleCol < 0 && /article/.test(h)) articleCol = c;
+        if (descCol < 0 && /desc/.test(h)) descCol = c;
+      });
+      if (articleCol < 0) continue;
+
+      // search this row and next 2 rows for item columns + qty column
+      for (var r2 = r; r2 <= Math.min(r + 2, rows.length - 1); r2++) {
+        var row2 = rows[r2] || [];
+        var itemCols = [];
+        var qtyCol = -1;
+        row2.forEach(function (cell, c) {
+          var h = normHeader(cell);
+          if (/^item\s*\d+/.test(h)) itemCols.push({ col: c, label: String(cell).trim() });
+          if (qtyCol < 0 && /^qty/.test(h)) qtyCol = c;
+        });
+        if (itemCols.length) {
+          return { articleCol: articleCol, descCol: descCol, qtyCol: qtyCol, itemCols: itemCols, startRow: Math.max(r, r2) + 1 };
+        }
+      }
+    }
+    return null;
+  }
+
+  function parseTailored(rows, header) {
+    var parts = [];
+    var skipLabels = { width: true, height: true };
+    for (var i = header.startRow; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var article = row[header.articleCol];
+      if (article == null || String(article).trim() === '') continue;
+      var desc = header.descCol >= 0 ? row[header.descCol] : '';
+      var descNorm = normHeader(desc);
+      if (skipLabels[descNorm]) continue;
+      var qty = header.qtyCol >= 0 ? Number(row[header.qtyCol]) : 1;
+      if (!(qty > 0)) qty = 1;
+
+      header.itemCols.forEach(function (ic) {
+        var raw = row[ic.col];
+        var len = Number(raw);
+        if (raw == null || isNaN(len) || len <= 0) return;
+        parts.push({
+          article: String(article).trim(),
+          description: desc == null ? '' : String(desc).trim(),
+          length: len,
+          qty: qty,
+          tag: ic.label
+        });
+      });
+    }
+    return parts;
+  }
+
+  function detectGenericHeader(rows) {
+    var maxScan = Math.min(rows.length, 15);
+    for (var r = 0; r < maxScan; r++) {
+      var row = rows[r] || [];
+      var articleCol = -1, descCol = -1, lengthCol = -1, qtyCol = -1;
+      row.forEach(function (cell, c) {
+        var h = normHeader(cell);
+        if (!h) return;
+        if (articleCol < 0 && /(article|profile\s*no|profile\s*code|item\s*no|code)/.test(h)) articleCol = c;
+        if (descCol < 0 && /(desc|profile\s*name|name)/.test(h)) descCol = c;
+        if (lengthCol < 0 && /(cutting\s*length|cut\s*length|length)/.test(h)) lengthCol = c;
+        if (qtyCol < 0 && /(qty|quantity|pcs|nos\b)/.test(h)) qtyCol = c;
+      });
+      if (lengthCol >= 0) {
+        return { articleCol: articleCol, descCol: descCol, lengthCol: lengthCol, qtyCol: qtyCol, startRow: r + 1 };
+      }
+    }
+    return null;
+  }
+
+  function parseGeneric(rows, header) {
+    var parts = [];
+    for (var i = header.startRow; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var len = header.lengthCol >= 0 ? Number(row[header.lengthCol]) : NaN;
+      if (isNaN(len) || len <= 0) continue;
+      var qty = header.qtyCol >= 0 ? Number(row[header.qtyCol]) : 1;
+      if (!(qty > 0)) qty = 1;
+      var article = header.articleCol >= 0 ? row[header.articleCol] : '';
+      var desc = header.descCol >= 0 ? row[header.descCol] : '';
+      parts.push({
+        article: article == null ? '' : String(article).trim(),
+        description: desc == null ? '' : String(desc).trim(),
+        length: len,
+        qty: qty,
+        tag: ''
+      });
+    }
+    return parts;
+  }
+
+  /**
+   * @param {Workbook} wb - SheetJS workbook
+   * @returns {{parts:Array, sheetUsed:string, mode:string}}
+   */
+  function parseWorkbook(wb) {
+    var sheetNames = wb.SheetNames || [];
+    // Prefer a sheet literally named "optimisation"/"optimization" for the tailored parser
+    var preferred = sheetNames.filter(function (n) { return /optimi[sz]ation/i.test(n); });
+    var order = preferred.concat(sheetNames.filter(function (n) { return preferred.indexOf(n) < 0; }));
+
+    for (var i = 0; i < order.length; i++) {
+      var name = order[i];
+      var rows = sheetToRows(wb.Sheets[name]);
+      var header = detectTailoredHeader(rows);
+      if (header) {
+        var parts = parseTailored(rows, header);
+        if (parts.length) return { parts: parts, sheetUsed: name, mode: 'tailored' };
+      }
+    }
+
+    // Fallback: generic single-length-column parser, try each sheet in order until one yields rows
+    for (var j = 0; j < sheetNames.length; j++) {
+      var name2 = sheetNames[j];
+      var rows2 = sheetToRows(wb.Sheets[name2]);
+      var gh = detectGenericHeader(rows2);
+      if (gh) {
+        var parts2 = parseGeneric(rows2, gh);
+        if (parts2.length) return { parts: parts2, sheetUsed: name2, mode: 'generic' };
+      }
+    }
+
+    return { parts: [], sheetUsed: null, mode: 'none' };
+  }
+
+  var ExcelImport = { parseWorkbook: parseWorkbook, detectTailoredHeader: detectTailoredHeader, detectGenericHeader: detectGenericHeader };
+  if (typeof module !== 'undefined' && module.exports) module.exports = ExcelImport;
+  else root.ExcelImport = ExcelImport;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+(function () {
+  'use strict';
+
+  /* ============================================================
+   * Utilities
+   * ==========================================================*/
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function fmt(n, dp) {
+    if (n == null || isNaN(n)) return '0';
+    dp = dp == null ? 0 : dp;
+    return Number(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  }
+  function fmtM(mm, dp) { return fmt(mm / 1000, dp == null ? 2 : dp); }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function debounce(fn, ms) {
+    var t = null;
+    return function () {
+      var args = arguments, ctx = this;
+      clearTimeout(t);
+      t = setTimeout(function () { fn.apply(ctx, args); }, ms);
+    };
+  }
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.classList.remove('show'); }, 2600);
+  }
+  function parseNum(v) {
+    if (v == null) return NaN;
+    var n = parseFloat(String(v).replace(/,/g, '').trim());
+    return n;
+  }
+  function parseStockLengths(str) {
+    return String(str || '')
+      .split(/[,;\n]/)
+      .map(function (s) { return parseFloat(s.trim()); })
+      .filter(function (n) { return !isNaN(n) && n > 0; });
+  }
+
+  /* Categorical colours for bar segments — deliberately kept clear of the
+     accent (burnt orange) and amber/red semantic hues so a part's colour is
+     never mistaken for a status indicator. */
+  var PALETTE = [
+    '#0f6e8c', '#3a5da8', '#6b4fa0', '#8a3f7a', '#2f7d4f',
+    '#4a8fa0', '#7a5a1f', '#a04a6b', '#2f9e8f', '#5a6bc9',
+    '#3f8a6b', '#9c5fa0', '#1f7a9e', '#8a6b2f', '#6b3f6b'
+  ];
+  function colorForKey(key) {
+    var s = String(key || '');
+    var h = 0;
+    for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
+    return PALETTE[h % PALETTE.length];
+  }
+
+  /* ============================================================
+   * Storage / state
+   * ==========================================================*/
+  var STORAGE_KEY = 'cutlist-optimiser-v1';
+  var state = null;
+
+  function defaultSettings() {
+    return { defaultStockLengths: [6000], kerf: 10, leadIn: 0, currency: 'AED' };
+  }
+
+  function makeProject(name) {
+    var id = uid();
+    return {
+      id: id,
+      name: name || 'New job',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      settings: defaultSettings(),
+      parts: [],
+      articleSettings: {},
+      lastResults: null
+    };
+  }
+
+  function loadState() {
+    var raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.projects && Object.keys(parsed.projects).length) return parsed;
+      } catch (e) { /* fall through */ }
+    }
+    var p = makeProject('Sample job');
+    var s = {};
+    s.projects = {};
+    s.projects[p.id] = p;
+    s.currentProjectId = p.id;
+    return s;
+  }
+
+  var persist = debounce(function () {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* storage full / unavailable */ }
+  }, 250);
+
+  function currentProject() { return state.projects[state.currentProjectId]; }
+  function touchProject() { currentProject().updatedAt = Date.now(); persist(); }
+
+  /* ============================================================
+   * Stock register — the physical bars on hand, one shared record across
+   * every job (stock is real inventory, not per-job data). New articles are
+   * registered automatically at 100 bars the first time they're seen.
+   * ==========================================================*/
+  var STOCK_KEY = 'cutlist-stock-v1';
+  var DEFAULT_STOCK_QTY = 100;
+  var stock = null;
+
+  function loadStock() {
+    var raw = null;
+    try { raw = localStorage.getItem(STOCK_KEY); } catch (e) { raw = null; }
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.articles) return parsed;
+      } catch (e) { /* fall through */ }
+    }
+    return { articles: {} };
+  }
+
+  var persistStock = debounce(function () {
+    try { localStorage.setItem(STOCK_KEY, JSON.stringify(stock)); } catch (e) { /* storage full / unavailable */ }
+  }, 250);
+
+  /** Register an article at the default stock quantity if it hasn't been seen before. Never overwrites an existing entry. */
+  function ensureArticleInStock(article, description) {
+    var key = (article || '').trim();
+    if (!key) return;
+    if (!stock.articles[key]) {
+      stock.articles[key] = { description: description || '', qty: DEFAULT_STOCK_QTY, updatedAt: Date.now() };
+      persistStock();
+      renderStockTableDebounced();
+    } else if (description && !stock.articles[key].description) {
+      stock.articles[key].description = description;
+      persistStock();
+    }
+  }
+
+  function stockQtyFor(article) {
+    var key = (article || '').trim();
+    var entry = stock.articles[key];
+    return entry ? entry.qty : null;
+  }
+
+  /** Registers every article seen across every job (not just the open one) so
+   * the stock register always reflects the full parts history, e.g. right
+   * after loading previously-saved jobs. */
+  function syncAllArticlesToStock() {
+    Object.keys(state.projects).forEach(function (pid) {
+      state.projects[pid].parts.forEach(function (p) {
+        if (p.article) ensureArticleInStock(p.article, p.description);
+      });
+    });
+  }
+
+  /* ============================================================
+   * Theme
+   * ==========================================================*/
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('cutlist-theme'); } catch (e) {}
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    var btn = document.getElementById('btnTheme');
+    if (btn) btn.addEventListener('click', function () {
+      var cur = document.documentElement.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('cutlist-theme', next); } catch (e) {}
+    });
+  }
+
+  /* ============================================================
+   * Project select / menu
+   * ==========================================================*/
+  function renderProjectSelect() {
+    var sel = document.getElementById('projectSelect');
+    sel.innerHTML = '';
+    Object.keys(state.projects)
+      .map(function (id) { return state.projects[id]; })
+      .sort(function (a, b) { return b.updatedAt - a.updatedAt; })
+      .forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if (p.id === state.currentProjectId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+  }
+
+  function switchProject(id) {
+    if (!state.projects[id]) return;
+    state.currentProjectId = id;
+    persist();
+    renderProjectSelect();
+    renderPartsTable();
+    renderProfilesTable();
+    renderTotals();
+    var proj = currentProject();
+    if (proj.lastResults) renderResults(proj.lastResults); else clearResults();
+  }
+
+  function newProjectFlow() {
+    var p = makeProject('Job ' + (Object.keys(state.projects).length + 1));
+    state.projects[p.id] = p;
+    state.currentProjectId = p.id;
+    persist();
+    renderProjectSelect();
+    renderPartsTable();
+    renderProfilesTable();
+    renderTotals();
+    clearResults();
+    activateTab('parts');
+    toast('New job created');
+  }
+
+  /* ============================================================
+   * Dashboard
+   * ==========================================================*/
+  function renderDashboard() {
+    var wrap = document.getElementById('savedJobsTableWrap');
+    if (!wrap) return;
+    var jobs = Object.keys(state.projects)
+      .map(function (id) { return state.projects[id]; })
+      .sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+
+    if (!jobs.length) {
+      wrap.innerHTML = '<div class="empty-state">No jobs yet — start one above.</div>';
+      return;
+    }
+
+    var rows = jobs.map(function (p) {
+      var isCurrent = p.id === state.currentProjectId;
+      var res = p.lastResults ? p.lastResults.summary : null;
+      return (
+        '<tr data-id="' + p.id + '">' +
+        '<td><b style="font-family:var(--sans); font-weight:600;">' + escapeHtml(p.name) + '</b>' + (isCurrent ? ' <span class="pill good" style="margin-left:6px;">open</span>' : '') + '</td>' +
+        '<td style="color:var(--text-dim);">' + new Date(p.updatedAt).toLocaleString() + '</td>' +
+        '<td class="num">' + (res ? fmt(res.totalBars) : '—') + '</td>' +
+        '<td class="num">' + (res ? fmt(res.yieldPct, 1) + '%' : '—') + '</td>' +
+        '<td>' + p.parts.length + ' parts</td>' +
+        '<td style="white-space:nowrap;">' +
+        '<button class="btn sm" data-act="open">Open</button> ' +
+        '<button class="btn ghost sm" data-act="rename">Rename</button> ' +
+        '<button class="btn ghost sm" data-act="duplicate">Duplicate</button> ' +
+        '<button class="btn ghost sm danger" data-act="delete">Delete</button>' +
+        '</td></tr>'
+      );
+    }).join('');
+
+    wrap.innerHTML =
+      '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
+      '<th>Job</th><th>Last updated</th><th>Bars required</th><th>Yield</th><th>Parts</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* ============================================================
+   * Stock register (UI)
+   * ==========================================================*/
+  function renderStockTable() {
+    var wrap = document.getElementById('stockTableWrap');
+    if (!wrap) return;
+    var keys = Object.keys(stock.articles).sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); });
+    if (!keys.length) {
+      wrap.innerHTML = '<div class="empty-state">No profiles registered yet — they\'re added automatically as you enter parts, or add one manually.</div>';
+      return;
+    }
+    var rows = keys.map(function (key) {
+      var e = stock.articles[key];
+      return (
+        '<tr data-article="' + escapeHtml(key) + '">' +
+        '<td><b>' + escapeHtml(key) + '</b></td>' +
+        '<td style="color:var(--text-dim);">' + escapeHtml(e.description || '—') + '</td>' +
+        '<td class="num"><input data-field="qty" type="number" min="0" step="1" value="' + e.qty + '" style="width:90px; text-align:right;"></td>' +
+        '<td style="color:var(--text-faint); font-size:11.5px;">' + new Date(e.updatedAt).toLocaleDateString() + '</td>' +
+        '<td><button class="row-del" title="Remove from stock register"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg></button></td>' +
+        '</tr>'
+      );
+    }).join('');
+    wrap.innerHTML =
+      '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
+      '<th>Article No.</th><th>Description</th><th style="width:100px;">Qty on hand</th><th>Updated</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  var renderStockTableDebounced = debounce(renderStockTable, 200);
+
+  function wireStock() {
+    var wrap = document.getElementById('stockTableWrap');
+    wrap.addEventListener('input', function (e) {
+      var input = e.target.closest('input[data-field="qty"]');
+      if (!input) return;
+      var article = input.closest('tr').getAttribute('data-article');
+      var n = parseNum(input.value);
+      if (isNaN(n) || n < 0) return;
+      stock.articles[article].qty = n;
+      stock.articles[article].updatedAt = Date.now();
+      persistStock();
+      renderResultsStockBadgesIfVisible();
+    });
+    wrap.addEventListener('click', function (e) {
+      var btn = e.target.closest('.row-del');
+      if (!btn) return;
+      var article = btn.closest('tr').getAttribute('data-article');
+      if (!confirm('Remove "' + article + '" from the stock register? (This only removes the record, not any parts using it.)')) return;
+      delete stock.articles[article];
+      persistStock();
+      renderStockTable();
+    });
+
+    var modal = document.getElementById('stockAddModal');
+    document.getElementById('btnStockAdd').addEventListener('click', function () {
+      document.getElementById('stockAddArticle').value = '';
+      document.getElementById('stockAddDesc').value = '';
+      document.getElementById('stockAddQty').value = DEFAULT_STOCK_QTY;
+      modal.classList.add('open');
+    });
+    document.getElementById('closeStockAdd').addEventListener('click', function () { modal.classList.remove('open'); });
+    document.getElementById('cancelStockAdd').addEventListener('click', function () { modal.classList.remove('open'); });
+    document.getElementById('confirmStockAdd').addEventListener('click', function () {
+      var article = document.getElementById('stockAddArticle').value.trim();
+      if (!article) { toast('Enter an Article No.'); return; }
+      var qty = parseNum(document.getElementById('stockAddQty').value);
+      if (isNaN(qty) || qty < 0) qty = DEFAULT_STOCK_QTY;
+      var desc = document.getElementById('stockAddDesc').value.trim();
+      stock.articles[article] = { description: desc, qty: qty, updatedAt: Date.now() };
+      persistStock();
+      renderStockTable();
+      modal.classList.remove('open');
+      toast('Added to stock register');
+    });
+  }
+
+  function wireDashboard() {
+    document.getElementById('btnDashNewOpt').addEventListener('click', newProjectFlow);
+    document.getElementById('btnDashSettings').addEventListener('click', function () { document.getElementById('btnSettings').click(); });
+    document.getElementById('btnDashStock').addEventListener('click', function () { activateTab('stock'); });
+
+    document.getElementById('savedJobsTableWrap').addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-act]');
+      var tr = e.target.closest('tr[data-id]');
+      if (!tr) return;
+      var id = tr.getAttribute('data-id');
+      if (btn) {
+        var act = btn.getAttribute('data-act');
+        if (act === 'open') openJob(id);
+        else if (act === 'rename') openRenameModal(id);
+        else if (act === 'duplicate') duplicateJob(id);
+        else if (act === 'delete') deleteJob(id);
+        return;
+      }
+      // Clicking anywhere else on the row (not one of its action buttons)
+      // opens the job too, same as the explicit "Open" button.
+      openJob(id);
+    });
+  }
+
+  /* ============================================================
+   * Parts table
+   * ==========================================================*/
+  var PART_FIELDS = ['article', 'description', 'length', 'qty', 'tag'];
+
+  function addPart(data) {
+    var proj = currentProject();
+    proj.parts.push({
+      id: uid(),
+      article: data.article || '',
+      description: data.description || '',
+      length: data.length != null ? data.length : '',
+      qty: data.qty != null ? data.qty : 1,
+      tag: data.tag || ''
+    });
+    if (data.article) ensureArticleInStock(data.article, data.description);
+  }
+
+  function renderPartsTable() {
+    var wrap = document.getElementById('partsTableWrap');
+    var proj = currentProject();
+    if (!proj.parts.length) {
+      wrap.innerHTML =
+        '<div class="empty-state">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>' +
+        '<div>No parts yet. Add a row, paste from Excel, or import a cutting list.</div></div>';
+      return;
+    }
+    var rows = proj.parts.map(function (p, i) {
+      return (
+        '<tr data-id="' + p.id + '">' +
+        '<td style="color:var(--text-faint); font-size:11.5px;">' + (i + 1) + '</td>' +
+        '<td><input data-field="article" value="' + escapeHtml(p.article) + '" placeholder="e.g. 557400"></td>' +
+        '<td><input data-field="description" value="' + escapeHtml(p.description) + '" placeholder="Profile name"></td>' +
+        '<td class="num"><input data-field="length" type="number" min="0" step="0.1" value="' + escapeHtml(p.length) + '" placeholder="mm"></td>' +
+        '<td class="num"><input data-field="qty" type="number" min="1" step="1" value="' + escapeHtml(p.qty) + '"></td>' +
+        '<td><input data-field="tag" value="' + escapeHtml(p.tag) + '" placeholder="optional"></td>' +
+        '<td><button class="row-del" title="Delete row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg></button></td>' +
+        '</tr>'
+      );
+    }).join('');
+
+    wrap.innerHTML =
+      '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
+      '<th style="width:30px;">#</th><th style="min-width:110px;">Article No.</th><th style="min-width:160px;">Description</th>' +
+      '<th style="width:100px;">Length (mm)</th><th style="width:70px;">Qty</th><th style="min-width:110px;">Tag / position</th><th style="width:34px;"></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderTotals() {
+    var proj = currentProject();
+    var count = 0, totalLen = 0, articles = {};
+    proj.parts.forEach(function (p) {
+      var qty = parseInt(p.qty, 10) || 0;
+      var len = parseNum(p.length) || 0;
+      count += qty;
+      totalLen += qty * len;
+      if (p.article) articles[p.article] = true;
+    });
+    var el = document.getElementById('partsTotals');
+    el.innerHTML =
+      '<span><b>' + proj.parts.length + '</b> rows</span>' +
+      '<span><b>' + fmt(count) + '</b> pieces total</span>' +
+      '<span><b>' + fmtM(totalLen, 1) + ' m</b> total length</span>' +
+      '<span><b>' + Object.keys(articles).length + '</b> distinct profile' + (Object.keys(articles).length === 1 ? '' : 's') + '</span>';
+  }
+
+  function distinctArticles() {
+    var proj = currentProject();
+    var map = {};
+    var order = [];
+    proj.parts.forEach(function (p) {
+      var key = (p.article || '').trim() || '(no article no.)';
+      if (!map[key]) { map[key] = { article: key, description: p.description || '', count: 0, qty: 0 }; order.push(key); }
+      if (!map[key].description && p.description) map[key].description = p.description;
+      map[key].count += 1;
+      map[key].qty += parseInt(p.qty, 10) || 0;
+    });
+    return order.map(function (k) { return map[k]; });
+  }
+
+  function renderProfilesTable() {
+    var proj = currentProject();
+    var card = document.getElementById('profilesCard');
+    var arts = distinctArticles();
+    if (!arts.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    var defStock = proj.settings.defaultStockLengths.join(', ');
+    var rows = arts.map(function (a) {
+      var ov = proj.articleSettings[a.article] || {};
+      var stockVal = ov.stockLengths ? ov.stockLengths.join(', ') : '';
+      var costVal = ov.costPerBar != null ? ov.costPerBar : '';
+      return (
+        '<tr data-article="' + escapeHtml(a.article) + '">' +
+        '<td><b>' + escapeHtml(a.article) + '</b></td>' +
+        '<td style="color:var(--text-dim);">' + escapeHtml(a.description || '\u2014') + '</td>' +
+        '<td class="num">' + a.qty + '</td>' +
+        '<td><input data-field="stockLengths" placeholder="default: ' + escapeHtml(defStock) + '" value="' + escapeHtml(stockVal) + '"></td>' +
+        '<td class="num"><input data-field="costPerBar" type="number" min="0" step="0.01" placeholder="\u2014" value="' + escapeHtml(costVal) + '"></td>' +
+        '</tr>'
+      );
+    }).join('');
+    document.getElementById('profilesTableWrap').innerHTML =
+      '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
+      '<th>Article No.</th><th>Description</th><th>Qty</th><th style="min-width:140px;">Stock length(s) mm</th><th style="min-width:110px;">Cost / bar</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* ============================================================
+   * Event wiring: parts table (delegation, no full re-render on keystroke)
+   * ==========================================================*/
+  function wirePartsTable() {
+    var wrap = document.getElementById('partsTableWrap');
+    wrap.addEventListener('input', function (e) {
+      var input = e.target.closest('input[data-field]');
+      if (!input) return;
+      var tr = input.closest('tr');
+      var id = tr.getAttribute('data-id');
+      var proj = currentProject();
+      var part = proj.parts.find(function (p) { return p.id === id; });
+      if (!part) return;
+      var field = input.getAttribute('data-field');
+      var val = input.value;
+      if (field === 'length' || field === 'qty') val = val === '' ? '' : parseNum(val);
+      part[field] = val;
+      touchProject();
+      if (field === 'article' || field === 'description') ensureArticleInStock(part.article, part.description);
+      renderTotalsDebounced();
+      renderProfilesTableDebounced();
+    });
+    wrap.addEventListener('click', function (e) {
+      var btn = e.target.closest('.row-del');
+      if (!btn) return;
+      var tr = btn.closest('tr');
+      var id = tr.getAttribute('data-id');
+      var proj = currentProject();
+      proj.parts = proj.parts.filter(function (p) { return p.id !== id; });
+      touchProject();
+      renderPartsTable();
+      renderProfilesTable();
+      renderTotals();
+    });
+
+    document.getElementById('profilesTableWrap').addEventListener('input', function (e) {
+      var input = e.target.closest('input[data-field]');
+      if (!input) return;
+      var tr = input.closest('tr');
+      var article = tr.getAttribute('data-article');
+      var proj = currentProject();
+      if (!proj.articleSettings[article]) proj.articleSettings[article] = {};
+      var field = input.getAttribute('data-field');
+      if (field === 'stockLengths') {
+        var arr = parseStockLengths(input.value);
+        if (arr.length) proj.articleSettings[article].stockLengths = arr;
+        else delete proj.articleSettings[article].stockLengths;
+      } else if (field === 'costPerBar') {
+        var n = parseNum(input.value);
+        if (!isNaN(n) && input.value !== '') proj.articleSettings[article].costPerBar = n;
+        else delete proj.articleSettings[article].costPerBar;
+      }
+      touchProject();
+    });
+  }
+  var renderTotalsDebounced = debounce(renderTotals, 150);
+  var renderProfilesTableDebounced = debounce(function () {
+    // Only rebuild if the set of distinct articles changed (avoid stomping focus while typing overrides)
+    var wrap = document.getElementById('profilesTableWrap');
+    var existingKeys = Array.prototype.slice.call(wrap.querySelectorAll('tr[data-article]')).map(function (tr) { return tr.getAttribute('data-article'); });
+    var newKeys = distinctArticles().map(function (a) { return a.article; });
+    if (existingKeys.join('|') !== newKeys.join('|')) renderProfilesTable();
+    else {
+      // update qty column live
+      distinctArticles().forEach(function (a) {
+        var tr = wrap.querySelector('tr[data-article="' + cssEscape(a.article) + '"]');
+        if (tr) { var td = tr.children[2]; if (td) td.textContent = a.qty; }
+      });
+    }
+  }, 200);
+
+  function cssEscape(s) {
+    return String(s).replace(/["\\]/g, '\\$&');
+  }
+
+  /* ============================================================
+   * Add row / paste / clear
+   * ==========================================================*/
+  function wireToolbar() {
+    document.getElementById('btnAddRow').addEventListener('click', function () {
+      addPart({ length: '', qty: 1 });
+      touchProject();
+      renderPartsTable();
+      renderTotals();
+    });
+    document.getElementById('btnClearParts').addEventListener('click', function () {
+      if (!currentProject().parts.length) return;
+      if (!confirm('Remove all parts from this job? This cannot be undone.')) return;
+      currentProject().parts = [];
+      touchProject();
+      renderPartsTable();
+      renderProfilesTable();
+      renderTotals();
+    });
+
+    // Paste modal
+    var pasteModal = document.getElementById('pasteModal');
+    document.getElementById('btnPaste').addEventListener('click', function () {
+      document.getElementById('pasteArea').value = '';
+      pasteModal.classList.add('open');
+      document.getElementById('pasteArea').focus();
+    });
+    document.getElementById('closePaste').addEventListener('click', function () { pasteModal.classList.remove('open'); });
+    document.getElementById('cancelPaste').addEventListener('click', function () { pasteModal.classList.remove('open'); });
+    document.getElementById('applyPaste').addEventListener('click', function () {
+      var text = document.getElementById('pasteArea').value;
+      var added = applyPasteText(text);
+      pasteModal.classList.remove('open');
+      if (added > 0) {
+        touchProject();
+        renderPartsTable();
+        renderProfilesTable();
+        renderTotals();
+        toast(added + ' row' + (added === 1 ? '' : 's') + ' added');
+      } else {
+        toast('No valid rows found');
+      }
+    });
+
+    // Excel import
+    document.getElementById('btnImportExcel').addEventListener('click', function () {
+      document.getElementById('fileExcel').click();
+    });
+    document.getElementById('fileExcel').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (file) importExcelFile(file);
+      e.target.value = '';
+    });
+
+    // Optimize
+    document.getElementById('btnOptimize').addEventListener('click', runOptimize);
+    document.getElementById('btnOptimizeTop').addEventListener('click', runOptimize);
+  }
+
+  function applyPasteText(text) {
+    var lines = text.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    var added = 0;
+    lines.forEach(function (line) {
+      var cells = line.indexOf('\t') >= 0 ? line.split('\t') : line.split(',');
+      cells = cells.map(function (c) { return c.trim(); });
+      if (!cells.length) return;
+      // Heuristic: Article, Description, Length, Qty  (Description/Qty optional)
+      var article = cells[0] || '';
+      var description = '', length = NaN, qty = 1;
+      if (cells.length >= 4) {
+        description = cells[1];
+        length = parseNum(cells[2]);
+        qty = parseNum(cells[3]) || 1;
+      } else if (cells.length === 3) {
+        // Could be Article, Length, Qty  OR Article, Description, Length
+        var maybeLen1 = parseNum(cells[1]);
+        var maybeLen2 = parseNum(cells[2]);
+        if (!isNaN(maybeLen2) && isNaN(maybeLen1)) { description = cells[1]; length = maybeLen2; qty = 1; }
+        else { length = maybeLen1; qty = parseNum(cells[2]) || 1; }
+      } else if (cells.length === 2) {
+        length = parseNum(cells[0]);
+        qty = parseNum(cells[1]) || 1;
+        article = '';
+        if (isNaN(length)) { article = cells[0]; length = parseNum(cells[1]); qty = 1; }
+      } else if (cells.length === 1) {
+        length = parseNum(cells[0]);
+        article = '';
+      }
+      if (isNaN(length) || length <= 0) return;
+      addPart({ article: article, description: description, length: length, qty: qty });
+      added++;
+    });
+    return added;
+  }
+
+  /* ============================================================
+   * Optimize + results rendering
+   * ==========================================================*/
+  function runOptimize() {
+    var proj = currentProject();
+    var validParts = proj.parts.filter(function (p) {
+      return (parseNum(p.length) > 0) && (parseInt(p.qty, 10) > 0);
+    });
+    if (!validParts.length) {
+      toast('Add at least one part with a length and quantity first');
+      return;
+    }
+
+    var optParts = validParts.map(function (p) {
+      var article = (p.article || '').trim() || '(no article no.)';
+      return {
+        id: p.id,
+        group: article,
+        groupLabel: p.description || '',
+        label: (p.description || article) + (p.tag ? ' \u00b7 ' + p.tag : ''),
+        length: parseNum(p.length),
+        qty: parseInt(p.qty, 10)
+      };
+    });
+
+    var results = CutOptimizer.optimizeByGroup(
+      optParts,
+      function (key) {
+        var ov = proj.articleSettings[key];
+        if (ov && ov.stockLengths && ov.stockLengths.length) return ov.stockLengths;
+        return proj.settings.defaultStockLengths.length ? proj.settings.defaultStockLengths : [6000];
+      },
+      function () { return { kerf: proj.settings.kerf, leadIn: proj.settings.leadIn }; }
+    );
+
+    var summary = buildJobSummary(results, proj);
+    proj.lastResults = { computedAt: Date.now(), byArticle: results, summary: summary };
+    touchProject();
+    renderResults(proj.lastResults);
+    activateTab('results');
+    toast('Optimisation complete');
+  }
+
+  function buildJobSummary(results, proj) {
+    var s = {
+      profiles: results.length, totalBars: 0, totalPartsLength: 0, totalPartsCount: 0,
+      usedStocksTotalLength: 0, totalCuts: 0, totalWaste: 0, errors: 0,
+      totalCost: 0, totalWasteCost: 0, hasCost: false
+    };
+    results.forEach(function (r) {
+      var res = r.result;
+      s.totalBars += res.totalBars;
+      s.totalPartsLength += res.totalPartsLength;
+      s.totalPartsCount += res.totalPartsCount;
+      s.usedStocksTotalLength += res.usedStocksTotalLength;
+      s.totalCuts += res.totalCuts;
+      s.totalWaste += res.totalWaste;
+      s.errors += res.errors.length;
+      var ov = proj.articleSettings[r.group];
+      var costPerBar = ov && ov.costPerBar != null ? ov.costPerBar : null;
+      if (costPerBar != null) {
+        s.hasCost = true;
+        res.layouts.forEach(function (l) {
+          var perMm = costPerBar / l.stockLength;
+          s.totalCost += costPerBar * l.repetition;
+          s.totalWasteCost += (l.remnant + l.kerfWaste) * perMm * l.repetition;
+        });
+      }
+    });
+    s.yieldPct = s.usedStocksTotalLength > 0 ? (s.totalPartsLength / s.usedStocksTotalLength) * 100 : 0;
+    return s;
+  }
+
+  function clearResults() {
+    document.getElementById('resultsToolbar').style.display = 'none';
+    document.getElementById('resultsContent').innerHTML =
+      '<div class="empty-state">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 21V3M16 21V3"/></svg>' +
+      '<div>Add parts and run <b>Optimise cutting layout</b> to see results here.</div></div>';
+  }
+
+  var TAB_NAMES = ['dashboard', 'parts', 'results', 'stock'];
+  function activateTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
+    TAB_NAMES.forEach(function (t) {
+      var el = document.getElementById('tab-' + t);
+      if (el) el.classList.toggle('active', t === name);
+    });
+    if (name === 'dashboard') renderDashboard();
+    if (name === 'stock') renderStockTable();
+  }
+
+  function renderResults(data) {
+    document.getElementById('resultsToolbar').style.display = data.byArticle.length ? '' : 'none';
+    var s = data.summary;
+    var wasteM = s.totalWaste / 1000;
+    var wastePct = s.usedStocksTotalLength > 0 ? (s.totalWaste / s.usedStocksTotalLength) * 100 : 0;
+    var proj = currentProject();
+
+    var html = '';
+    html += '<div class="card"><div class="card-head"><h3>Job summary</h3><span class="hint">Computed ' + new Date(data.computedAt).toLocaleString() + '</span></div>';
+    html += '<div class="stat-grid">';
+    html += statBox('Profiles', s.profiles, '', '');
+    html += statBox('Bars required', fmt(s.totalBars), '', 'accent');
+    html += statBox('Overall yield', fmt(s.yieldPct, 1) + '%', 'material used vs. stock consumed', s.yieldPct >= 75 ? 'good' : (s.yieldPct >= 55 ? '' : 'warn'));
+    html += statBox('Total waste', fmtM(s.totalWaste, 1) + ' m', fmt(wastePct, 1) + '% of stock used', wastePct <= 25 ? 'good' : 'warn');
+    html += statBox('Total cuts', fmt(s.totalCuts), '', '');
+    html += statBox('Parts total length', fmtM(s.totalPartsLength, 1) + ' m', fmt(s.totalPartsCount) + ' pieces', '');
+    if (s.hasCost) {
+      html += statBox('Material cost', proj.settings.currency + ' ' + fmt(s.totalCost, 0), '', 'accent');
+      html += statBox('Waste cost', proj.settings.currency + ' ' + fmt(s.totalWasteCost, 0), '', 'warn');
+    }
+    html += '</div>';
+    if (s.errors > 0) {
+      html += '<div class="alert err" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>' +
+        '<div>' + s.errors + ' part' + (s.errors === 1 ? '' : 's') + " could not be placed \u2014 length exceeds every available stock size for that profile. See the profile card(s) below.</div></div>";
+    }
+    var shortProfiles = data.byArticle.filter(function (r) {
+      var key = r.group;
+      if (!key || key === '(no article no.)') return false;
+      var onHand = stockQtyFor(key);
+      return onHand != null && onHand < r.result.totalBars;
+    });
+    if (shortProfiles.length) {
+      html += '<div class="alert err" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>' +
+        '<div>' + shortProfiles.length + ' profile' + (shortProfiles.length === 1 ? '' : 's') + ' don\u2019t have enough stock on hand: ' +
+        shortProfiles.map(function (r) { return escapeHtml(r.group); }).join(', ') + '. Check the Stock tab.</div></div>';
+    }
+    html += '</div>';
+
+    data.byArticle.forEach(function (r) {
+      html += renderProfileCard(r, proj);
+    });
+
+    document.getElementById('resultsContent').innerHTML = html;
+    wireProfileCards();
+  }
+
+  function renderResultsStockBadgesIfVisible() {
+    var proj = currentProject();
+    var resultsTab = document.getElementById('tab-results');
+    if (proj.lastResults && resultsTab && resultsTab.classList.contains('active')) {
+      renderResults(proj.lastResults);
+    }
+  }
+
+  function statBox(label, value, sub, cls) {
+    return '<div class="stat-box ' + (cls || '') + '"><div class="label">' + escapeHtml(label) + '</div><div class="value">' + value + '</div>' +
+      (sub ? '<div class="sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+  }
+
+  function renderProfileCard(r, proj) {
+    var res = r.result;
+    var pillClass = res.yieldPct >= 75 ? 'good' : (res.yieldPct >= 55 ? 'warn' : 'bad');
+    var stockSummary = res.requiredStocks.map(function (s) { return s.quantity + '\u00d7 ' + fmt(s.stockLength) + 'mm'; }).join(', ');
+
+    var isRealArticle = r.group && r.group !== '(no article no.)';
+    var onHand = isRealArticle ? stockQtyFor(r.group) : null;
+
+    var body = '<div class="stat-grid">';
+    body += statBox('Bars required', stockSummary || '0', '', 'accent');
+    body += statBox('Yield', fmt(res.yieldPct, 1) + '%', '', '');
+    body += statBox('Total cuts', fmt(res.totalCuts), '', '');
+    body += statBox('Waste', fmtM(res.totalWaste, 2) + ' m', fmt(res.totalRemnant, 0) + 'mm remnant + ' + fmt(res.totalKerfWaste, 0) + 'mm kerf', '');
+    if (onHand != null) {
+      var short = onHand < res.totalBars;
+      body += statBox('Stock on hand', fmt(onHand) + ' bars', short ? ('short by ' + fmt(res.totalBars - onHand) + ' bars') : 'sufficient', short ? 'warn' : 'good');
+    }
+    body += '</div>';
+
+    if (onHand != null) {
+      body += '<div class="row" style="margin-top:2px;">' +
+        '<button class="btn sm" data-deduct-stock="' + escapeHtml(r.group) + '" data-deduct-qty="' + res.totalBars + '">' +
+        'Record cut \u2014 deduct ' + res.totalBars + ' bar' + (res.totalBars === 1 ? '' : 's') + ' from stock</button>' +
+        '<span class="hint" style="margin-left:8px;">Currently ' + fmt(onHand) + ' on hand for ' + escapeHtml(r.group) + '</span>' +
+        '</div>';
+    }
+
+    if (res.errors.length) {
+      body += '<div class="alert err">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>' +
+        '<div>' + res.errors.map(function (e) { return escapeHtml(e.message) + ' (\u00d7' + e.qty + ')'; }).join('<br>') + '</div></div>';
+    }
+
+    res.layouts.forEach(function (layout) {
+      body += renderLayoutCard(layout);
+    });
+
+    var descr = r.groupLabel || '';
+    return (
+      '<div class="profile-card">' +
+      '<div class="profile-head">' +
+      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>' +
+      '<div class="titles"><b>' + escapeHtml(r.group) + '</b><span>' + escapeHtml(descr || '\u2014') + '</span></div>' +
+      '<div class="metrics">' +
+      '<div class="metric">Bars<br><b>' + fmt(res.totalBars) + '</b></div>' +
+      '<div class="metric">Yield<br><b><span class="pill ' + pillClass + '">' + fmt(res.yieldPct, 1) + '%</span></b></div>' +
+      '<div class="metric">Waste<br><b>' + fmtM(res.totalWaste, 2) + ' m</b></div>' +
+      '</div></div>' +
+      '<div class="profile-body">' + body + '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderLayoutCard(layout) {
+    var kerfPerCut = layout.cuts > 0 ? layout.kerfWaste / layout.cuts : 0;
+    var segs = '';
+    layout.pieces.forEach(function (p) {
+      var color = colorForKey(p.label || p.length);
+      // flex-grow set to the piece's true mm length so segments stay
+      // proportional to each other; the fixed-width kerf ticks below take
+      // their space out of the row independently of this ratio.
+      segs += '<div class="bar-seg" style="flex:' + Math.max(p.length, 1) + ' 1 0%; background:' + color + ';">' +
+        '<span>' + fmt(p.length) + '</span>' +
+        '<span class="seg-tip">' + escapeHtml(p.label || '') + ' \u2014 ' + fmt(p.length) + 'mm</span>' +
+        '</div>';
+      // Every piece placed consumes a saw-blade kerf allowance right after
+      // it (this optimizer charges kerf once per cut, including the last
+      // cut on the bar) \u2014 show it as a small fixed-width tick rather than
+      // lumping all kerf waste into one segment at the end.
+      if (kerfPerCut > 0) {
+        segs += '<div class="bar-seg kerf-tick"><span class="seg-tip">Kerf (saw blade): ' + fmt(kerfPerCut) + 'mm</span></div>';
+      }
+    });
+    var remPct = Math.max(0, (layout.remnant / layout.stockLength) * 100);
+    if (remPct > 0.05) segs += '<div class="bar-seg remnant" style="flex:' + Math.max(layout.remnant, 1) + ' 1 0%;">' + (remPct > 4 ? fmt(layout.remnant) : '') + '</div>';
+
+    var partsRows = layout.pieces.reduce(function (acc, p) {
+      var key = p.length + '|' + (p.label || '');
+      if (!acc.map[key]) { acc.map[key] = { length: p.length, label: p.label, qty: 0 }; acc.order.push(key); }
+      acc.map[key].qty++;
+      return acc;
+    }, { map: {}, order: [] });
+    var partsTable = partsRows.order.map(function (k) {
+      var row = partsRows.map[k];
+      return '<tr><td>' + fmt(row.length) + ' mm</td><td>' + escapeHtml(row.label || '') + '</td><td class="num">' + row.qty + '</td></tr>';
+    }).join('');
+
+    return (
+      '<div class="layout-card">' +
+      '<div class="layout-head">' +
+      '<div class="badge">' + layout.id + '</div>' +
+      '<b class="rep">\u00d7' + layout.repetition + ' bar' + (layout.repetition === 1 ? '' : 's') + '</b>' +
+      '<span class="stockinfo">Stock length: ' + fmt(layout.stockLength) + ' mm</span>' +
+      '</div>' +
+      '<div class="bar-visual">' + segs + '</div>' +
+      (kerfPerCut > 0 ? '<div class="bar-caption"><span class="tick-swatch"></span>Dark tick = ' + fmt(kerfPerCut) + 'mm saw-blade kerf, allowed after every cut</div>' : '') +
+      '<div class="layout-parts"><table><thead><tr><th>Length</th><th>Label</th><th>Qty</th></tr></thead><tbody>' + partsTable + '</tbody></table></div>' +
+      '<div class="layout-stats">' +
+      '<span>Cuts: <b>' + layout.cuts + '</b></span>' +
+      '<span>Kerf waste: <b>' + fmt(layout.kerfWaste) + ' mm</b></span> <span class="hint">(' + fmt(kerfPerCut) + 'mm × ' + layout.cuts + ' cuts)</span>' +
+      '<span>Remnant: <b>' + fmt(layout.remnant) + ' mm</b></span>' +
+      '<span>Waste: <b>' + fmt(layout.wastePct, 1) + '%</b></span>' +
+      '</div></div>'
+    );
+  }
+
+  function wireProfileCards() {
+    document.querySelectorAll('.profile-head').forEach(function (head) {
+      head.addEventListener('click', function () {
+        head.parentElement.classList.toggle('open');
+      });
+    });
+    // Open the first one by default
+    var first = document.querySelector('.profile-card');
+    if (first) first.classList.add('open');
+  }
+
+  /* ============================================================
+   * Tabs
+   * ==========================================================*/
+  function wireTabs() {
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { activateTab(btn.getAttribute('data-tab')); });
+    });
+  }
+
+  /* ============================================================
+   * Settings modal
+   * ==========================================================*/
+  function wireSettings() {
+    var modal = document.getElementById('settingsModal');
+    document.getElementById('btnSettings').addEventListener('click', function () {
+      var s = currentProject().settings;
+      document.getElementById('setStockLengths').value = s.defaultStockLengths.join(', ');
+      document.getElementById('setKerf').value = s.kerf;
+      document.getElementById('setLeadIn').value = s.leadIn;
+      document.getElementById('setCurrency').value = s.currency;
+      modal.classList.add('open');
+    });
+    document.getElementById('closeSettings').addEventListener('click', function () { modal.classList.remove('open'); });
+    document.getElementById('cancelSettings').addEventListener('click', function () { modal.classList.remove('open'); });
+    document.getElementById('saveSettings').addEventListener('click', function () {
+      var proj = currentProject();
+      var lengths = parseStockLengths(document.getElementById('setStockLengths').value);
+      proj.settings.defaultStockLengths = lengths.length ? lengths : [6000];
+      proj.settings.kerf = parseNum(document.getElementById('setKerf').value) || 0;
+      proj.settings.leadIn = parseNum(document.getElementById('setLeadIn').value) || 0;
+      proj.settings.currency = document.getElementById('setCurrency').value.trim() || 'AED';
+      touchProject();
+      renderProfilesTable();
+      modal.classList.remove('open');
+      toast('Settings saved');
+    });
+  }
+
+  /* ============================================================
+   * Job actions menu (rename / duplicate / save / load / delete)
+   * ==========================================================*/
+  /* ---- Shared job actions: work on any job id, used by both the topbar
+     "Job actions" menu (always the current job) and the Dashboard's Saved
+     Jobs list (any job, whether or not it's currently open). ---- */
+  var renameTargetId = null;
+
+  function openRenameModal(id) {
+    renameTargetId = id;
+    document.getElementById('renameInput').value = state.projects[id].name;
+    document.getElementById('renameModal').classList.add('open');
+  }
+
+  function duplicateJob(id) {
+    var src = state.projects[id];
+    var copy = JSON.parse(JSON.stringify(src));
+    copy.id = uid();
+    copy.name = src.name + ' (copy)';
+    copy.createdAt = Date.now();
+    copy.updatedAt = Date.now();
+    state.projects[copy.id] = copy;
+    persist();
+    renderProjectSelect();
+    renderDashboard();
+    toast('Job duplicated');
+    return copy.id;
+  }
+
+  function deleteJob(id) {
+    if (Object.keys(state.projects).length <= 1) { toast('At least one job must remain'); return; }
+    if (!confirm('Delete job "' + state.projects[id].name + '"? This cannot be undone.')) return;
+    var wasCurrent = id === state.currentProjectId;
+    delete state.projects[id];
+    persist();
+    renderProjectSelect();
+    renderDashboard();
+    if (wasCurrent) switchProject(Object.keys(state.projects)[0]);
+    toast('Job deleted');
+  }
+
+  function openJob(id) {
+    switchProject(id);
+    activateTab('parts');
+  }
+
+  function wireProjectMenu() {
+    var menuBtn = document.getElementById('btnProjectMenu');
+    var menu = document.getElementById('projectMenu');
+    menuBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    });
+    document.addEventListener('click', function () { menu.style.display = 'none'; });
+
+    document.getElementById('projectSelect').addEventListener('change', function (e) { switchProject(e.target.value); });
+    document.getElementById('btnNewProject').addEventListener('click', newProjectFlow);
+
+    var renameModal = document.getElementById('renameModal');
+    menu.addEventListener('click', function (e) {
+      var item = e.target.closest('.menu-item');
+      if (!item) return;
+      var action = item.getAttribute('data-action');
+      if (action === 'rename') {
+        openRenameModal(state.currentProjectId);
+      } else if (action === 'duplicate') {
+        var newId = duplicateJob(state.currentProjectId);
+        switchProject(newId);
+      } else if (action === 'save-json') {
+        downloadProjectJson(currentProject());
+      } else if (action === 'load-json') {
+        document.getElementById('fileProjectJson').click();
+      } else if (action === 'delete') {
+        deleteJob(state.currentProjectId);
+      }
+    });
+
+    document.getElementById('closeRename').addEventListener('click', function () { renameModal.classList.remove('open'); });
+    document.getElementById('cancelRename').addEventListener('click', function () { renameModal.classList.remove('open'); });
+    document.getElementById('confirmRename').addEventListener('click', function () {
+      var name = document.getElementById('renameInput').value.trim();
+      if (name && renameTargetId && state.projects[renameTargetId]) {
+        state.projects[renameTargetId].name = name;
+        state.projects[renameTargetId].updatedAt = Date.now();
+        persist();
+        renderProjectSelect();
+        renderDashboard();
+      }
+      renameModal.classList.remove('open');
+      renameTargetId = null;
+    });
+
+    document.getElementById('fileProjectJson').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(reader.result);
+          if (!data || !data.id || !data.parts) throw new Error('bad format');
+          data.id = uid();
+          data.name = data.name || 'Imported job';
+          state.projects[data.id] = data;
+          state.currentProjectId = data.id;
+          persist();
+          syncAllArticlesToStock();
+          renderProjectSelect();
+          switchProject(data.id);
+          toast('Job loaded');
+        } catch (err) {
+          toast('Could not read that file \u2014 is it a job export from this app?');
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  /**
+   * Save a generated file to the viewer's device. Three tiers, tried in order:
+   *  1. Claude Artifact "downloads" capability — needed when this page is
+   *     running inside a published artifact preview, which sandboxes plain
+   *     browser downloads.
+   *  2. File System Access API (window.showSaveFilePicker) — real deployed
+   *     PWA on desktop Chrome/Edge: gives the user an actual OS "Save As"
+   *     dialog so they can pick the folder and filename themselves.
+   *  3. Classic Blob + <a download> click — Safari/Firefox/mobile/anywhere
+   *     else; saves straight to the browser's configured downloads folder.
+   * Returns {ok, code} — code is set on failure so callers can tailor the
+   * toast (e.g. .xlsx is outside the artifact-preview allowlist, or the
+   * user cancelled the native save dialog).
+   */
+  var FSA_MIME_TYPES = {
+    json: 'application/json',
+    pdf: 'application/pdf',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv'
+  };
+
+  function saveFileSmart(filename, data, mime) {
+    function classicDownload() {
+      try {
+        var blob = (typeof Blob !== 'undefined' && data instanceof Blob) ? data : new Blob([data], { type: mime || 'application/octet-stream' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        return Promise.resolve({ ok: true, via: 'browser' });
+      } catch (e) {
+        return Promise.resolve({ ok: false, via: 'browser', code: 'error' });
+      }
+    }
+
+    function fsaSave() {
+      if (typeof window.showSaveFilePicker !== 'function') return classicDownload();
+      var ext = (filename.split('.').pop() || '').toLowerCase();
+      var pickerMime = mime || FSA_MIME_TYPES[ext] || 'application/octet-stream';
+      var acceptMap = {};
+      acceptMap[pickerMime] = ['.' + (ext || 'txt')];
+      return window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: (ext || 'file').toUpperCase() + ' file', accept: acceptMap }]
+      }).then(function (handle) {
+        return handle.createWritable().then(function (writable) {
+          var blob = (typeof Blob !== 'undefined' && data instanceof Blob) ? data : new Blob([data], { type: pickerMime });
+          return writable.write(blob).then(function () {
+            return writable.close();
+          }).then(function () {
+            return { ok: true, via: 'fsa' };
+          });
+        });
+      }).catch(function (err) {
+        if (err && err.name === 'AbortError') return { ok: false, via: 'fsa', code: 'declined' };
+        // Any other picker failure (permission, unsupported context, etc.) —
+        // fall back to a classic download rather than surfacing an error.
+        return classicDownload();
+      });
+    }
+
+    if (window.claude && typeof window.claude.use === 'function') {
+      return window.claude.use('downloads').then(function (downloads) {
+        if (!downloads) return fsaSave();
+        return downloads.save({ filename: filename, data: data }).then(
+          function () { return { ok: true, via: 'downloads' }; },
+          function (err) {
+            var code = err && err.code;
+            if (code === 'declined') return { ok: false, via: 'downloads', code: code };
+            // rejected_extension / too_large / extension_not_enabled / rate_limited /
+            // not_granted / capability_disabled / etc: try the native folder
+            // picker next rather than silently falling back to a browser
+            // download that the sandbox will also block.
+            return fsaSave();
+          }
+        );
+      }).catch(function () { return fsaSave(); });
+    }
+    return fsaSave();
+  }
+
+  function downloadProjectJson(proj) {
+    var json = JSON.stringify(proj, null, 2);
+    saveFileSmart(safeFilename(proj.name) + '.json', json, 'application/json').then(function (res) {
+      if (res.ok) { toast('Job file saved'); return; }
+      if (res.code === 'declined') { toast('Save cancelled'); return; }
+      toast('Could not save the job file here');
+    });
+  }
+
+  function safeFilename(s) {
+    return String(s || 'job').replace(/[^a-z0-9\-_ ]/gi, '').trim().replace(/\s+/g, '_') || 'job';
+  }
+
+  /* ============================================================
+   * Excel import
+   * ==========================================================*/
+  function importExcelFile(file) {
+    if (typeof XLSX === 'undefined') { toast('Excel import library did not load (check your connection)'); return; }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, { type: 'array' });
+        var res = ExcelImport.parseWorkbook(wb);
+        if (!res.parts.length) {
+          toast('No recognisable cutting-list data found in that file');
+          return;
+        }
+        res.parts.forEach(function (p) { addPart(p); });
+        touchProject();
+        renderPartsTable();
+        renderProfilesTable();
+        renderTotals();
+        toast('Imported ' + res.parts.length + ' part' + (res.parts.length === 1 ? '' : 's') + ' from "' + res.sheetUsed + '"');
+      } catch (err) {
+        console.error(err);
+        toast('Could not read that Excel file (' + (err && err.message ? err.message : 'unknown error') + ')');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /* ============================================================
+   * Export: Excel
+   * ==========================================================*/
+  function exportExcelReport() {
+    var proj = currentProject();
+    if (!proj.lastResults) { toast('Run "Optimise cutting layout" first'); return; }
+    if (typeof XLSX === 'undefined') { toast('Excel export library did not load (check your connection)'); return; }
+    var data = proj.lastResults;
+    var hasCost = data.summary.hasCost;
+
+    var summaryAoa = [
+      ['Eurolux Doors and Windows, Cut Optimization — SCHUCO profiles'],
+      ['Job', proj.name],
+      ['Generated', new Date(data.computedAt).toLocaleString()],
+      ['Kerf (mm)', proj.settings.kerf],
+      []
+    ];
+    var headerRow = ['Article No.', 'Description', 'Total Parts Length (mm)', 'Total Qty of Parts', 'Stock Length(s) Used (mm)', 'Bars Required', 'Yield %', 'Waste (mm)'];
+    if (hasCost) headerRow = headerRow.concat(['Material Cost', 'Waste Cost']);
+    summaryAoa.push(headerRow);
+
+    data.byArticle.forEach(function (r) {
+      var res = r.result;
+      var ov = proj.articleSettings[r.group];
+      var costPerBar = ov && ov.costPerBar != null ? ov.costPerBar : null;
+      var stockStr = res.requiredStocks.map(function (s) { return s.quantity + '×' + s.stockLength; }).join(', ');
+      var row = [r.group, r.groupLabel || '', res.totalPartsLength, res.totalPartsCount, stockStr, res.totalBars, Number(res.yieldPct.toFixed(1)), Number(res.totalWaste.toFixed(0))];
+      if (hasCost) {
+        var cost = 0, wasteCost = 0;
+        if (costPerBar != null) {
+          res.layouts.forEach(function (l) {
+            var perMm = costPerBar / l.stockLength;
+            cost += costPerBar * l.repetition;
+            wasteCost += (l.remnant + l.kerfWaste) * perMm * l.repetition;
+          });
+        }
+        row = row.concat([Number(cost.toFixed(2)), Number(wasteCost.toFixed(2))]);
+      }
+      summaryAoa.push(row);
+    });
+    summaryAoa.push([]);
+    var totRow = ['TOTAL', '', data.summary.totalPartsLength, data.summary.totalPartsCount, '', data.summary.totalBars, Number(data.summary.yieldPct.toFixed(1)), Number(data.summary.totalWaste.toFixed(0))];
+    if (hasCost) totRow = totRow.concat([Number(data.summary.totalCost.toFixed(2)), Number(data.summary.totalWasteCost.toFixed(2))]);
+    summaryAoa.push(totRow);
+
+    var layoutsAoa = [['Article No.', 'Description', 'Layout ID', 'Repetition (bars)', 'Stock Length (mm)', 'Parts on this bar', 'Cuts', 'Kerf Waste (mm)', 'Remnant (mm)', 'Waste %']];
+    data.byArticle.forEach(function (r) {
+      r.result.layouts.forEach(function (l) {
+        var grouped = {};
+        var order = [];
+        l.pieces.forEach(function (p) {
+          var k = p.length + '|' + (p.label || '');
+          if (!grouped[k]) { grouped[k] = { length: p.length, label: p.label, qty: 0 }; order.push(k); }
+          grouped[k].qty++;
+        });
+        var partsStr = order.map(function (k) { var g = grouped[k]; return g.qty + '× ' + g.length + 'mm' + (g.label ? ' (' + g.label + ')' : ''); }).join('\n');
+        layoutsAoa.push([r.group, r.groupLabel || '', l.id, l.repetition, l.stockLength, partsStr, l.cuts, l.kerfWaste, Number(l.remnant.toFixed(0)), Number(l.wastePct.toFixed(1))]);
+      });
+    });
+
+    var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Tag / position']];
+    proj.parts.forEach(function (p) { partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.tag]); });
+
+    var wb = XLSX.utils.book_new();
+    var ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);
+    var ws2 = XLSX.utils.aoa_to_sheet(layoutsAoa);
+    var ws3 = XLSX.utils.aoa_to_sheet(partsAoa);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Cutting Layouts');
+    XLSX.utils.book_append_sheet(wb, ws3, 'Parts Input');
+    var bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveFileSmart(safeFilename(proj.name) + '_cutting_optimisation.xlsx', bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').then(function (res) {
+      if (res.ok) { toast('Excel report saved'); return; }
+      if (res.code === 'declined') { toast('Save cancelled'); return; }
+      if (res.code === 'rejected_extension' || res.code === 'extension_not_enabled') {
+        toast('Excel export isn’t available in this quick preview — use the downloadable app package to export Excel');
+        return;
+      }
+      toast('Could not save the Excel file here');
+    });
+  }
+
+  /* ============================================================
+   * Export: PDF
+   * ==========================================================*/
+  function hexToRgb(hex) {
+    hex = String(hex).replace('#', '');
+    return [parseInt(hex.substr(0, 2), 16), parseInt(hex.substr(2, 2), 16), parseInt(hex.substr(4, 2), 16)];
+  }
+
+  function exportPdfReport() {
+    var proj = currentProject();
+    if (!proj.lastResults) { toast('Run "Optimise cutting layout" first'); return; }
+    if (typeof window.jspdf === 'undefined') { toast('PDF export library did not load (check your connection)'); return; }
+    var data = proj.lastResults;
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
+    var margin = 42;
+    var contentW = pageW - margin * 2;
+    var y = margin;
+
+    function checkBreak(need) {
+      if (y + need > pageH - 36) { doc.addPage(); y = margin; }
+    }
+    function line(text, size, opts) {
+      opts = opts || {};
+      doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
+      doc.setFontSize(size);
+      doc.setTextColor(opts.color ? opts.color[0] : 30, opts.color ? opts.color[1] : 30, opts.color ? opts.color[2] : 30);
+      doc.text(String(text), margin, y);
+      y += opts.gap != null ? opts.gap : size * 1.35;
+    }
+
+    line('Eurolux Doors and Windows', 18, { bold: true, gap: 20 });
+    line('Cut Optimization Report — SCHUCO profiles', 11, { color: [120, 130, 140], gap: 18 });
+    line(proj.name, 12, { color: [90, 100, 110], gap: 16 });
+    line('Generated ' + new Date(data.computedAt).toLocaleString() + '   ·   Kerf: ' + proj.settings.kerf + 'mm   ·   ' + data.summary.profiles + ' profile(s)   ·   ' + data.summary.totalBars + ' bars required   ·   Yield ' + data.summary.yieldPct.toFixed(1) + '%', 9.5, { color: [110, 120, 130], gap: 20 });
+
+    doc.setDrawColor(220, 224, 228);
+    doc.line(margin, y, pageW - margin, y);
+    y += 18;
+
+    data.byArticle.forEach(function (r) {
+      var res = r.result;
+      checkBreak(60);
+      line(r.group + (r.groupLabel ? '  —  ' + r.groupLabel : ''), 13, { bold: true, gap: 16 });
+      var stockStr = res.requiredStocks.map(function (s) { return s.quantity + '× ' + s.stockLength + 'mm'; }).join(', ');
+      line('Bars required: ' + stockStr + '   ·   Yield: ' + res.yieldPct.toFixed(1) + '%   ·   Cuts: ' + res.totalCuts + '   ·   Waste: ' + res.totalWaste.toFixed(0) + 'mm', 9.5, { color: [100, 110, 120], gap: 14 });
+
+      if (res.errors.length) {
+        doc.setTextColor(190, 60, 60);
+        doc.setFontSize(9.5);
+        res.errors.forEach(function (e) { doc.text('⚠ ' + e.message + ' (×' + e.qty + ')', margin, y); y += 13; });
+        y += 4;
+      }
+
+      res.layouts.forEach(function (layout) {
+        checkBreak(70);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.setTextColor(20, 20, 20);
+        doc.text('Layout ' + layout.id + '  ×' + layout.repetition + '   (' + layout.stockLength + 'mm stock)', margin, y);
+        y += 12;
+
+        var barH = 20;
+        var barY = y;
+        var x = margin;
+        var kerfPerCut = layout.cuts > 0 ? layout.kerfWaste / layout.cuts : 0;
+        var tickW = 1.4; // fixed visual width (pt) for the kerf mark, independent of true mm proportion
+        doc.setDrawColor(200, 205, 210);
+        doc.setLineWidth(0.5);
+        doc.rect(margin, barY, contentW, barH);
+        layout.pieces.forEach(function (p) {
+          var w = (p.length / layout.stockLength) * contentW;
+          var rgb = hexToRgb(colorForKey(p.label || p.length));
+          doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+          doc.rect(x, barY, w, barH, 'F');
+          if (w > 22) {
+            doc.setFontSize(7);
+            doc.setTextColor(255, 255, 255);
+            doc.text(String(p.length), x + w / 2, barY + barH / 2 + 2.5, { align: 'center' });
+          }
+          x += w;
+          // Mark the saw-blade kerf allowance charged after this cut as a
+          // thin dark tick between segments, rather than folding it into
+          // one lumped waste block at the end of the bar.
+          if (kerfPerCut > 0) {
+            doc.setFillColor(35, 35, 38);
+            doc.rect(x, barY, tickW, barH, 'F');
+            x += tickW;
+          }
+        });
+        var remW = Math.max(0, margin + contentW - x);
+        if (remW > 0.3) {
+          doc.setFillColor(238, 240, 242);
+          doc.rect(x, barY, remW, barH, 'F');
+        }
+        doc.setDrawColor(200, 205, 210);
+        doc.rect(margin, barY, contentW, barH);
+        y = barY + barH + 12;
+
+        checkBreak(14);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(90, 100, 110);
+        doc.text('Cuts: ' + layout.cuts + '   Kerf: ' + kerfPerCut.toFixed(0) + 'mm/cut (' + layout.kerfWaste + 'mm total)   Remnant: ' + layout.remnant.toFixed(0) + 'mm   Waste: ' + layout.wastePct.toFixed(1) + '%', margin, y);
+        y += 18;
+      });
+      y += 6;
+      doc.setDrawColor(230, 233, 236);
+      doc.line(margin, y, pageW - margin, y);
+      y += 18;
+    });
+
+    // page numbers
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(160, 168, 176);
+      doc.text('Page ' + i + ' of ' + pageCount, pageW - margin, pageH - 20, { align: 'right' });
+      doc.text('Eurolux Doors and Windows, Cut Optimization', margin, pageH - 20);
+    }
+
+    var pdfBytes = doc.output('arraybuffer');
+    saveFileSmart(safeFilename(proj.name) + '_cutting_report.pdf', pdfBytes, 'application/pdf').then(function (res) {
+      if (res.ok) { toast('PDF report saved'); return; }
+      if (res.code === 'declined') { toast('Save cancelled'); return; }
+      toast('Could not save the PDF file here');
+    });
+  }
+
+  function wireExport() {
+    document.getElementById('btnExportExcel').addEventListener('click', exportExcelReport);
+    document.getElementById('btnExportPdf').addEventListener('click', exportPdfReport);
+  }
+
+  /* ============================================================
+   * Service worker (only succeeds when actually hosted; harmless no-op
+   * inside a sandboxed preview where registration is blocked)
+   * ==========================================================*/
+  function registerServiceWorkerIfHosted() {
+    try {
+      if ('serviceWorker' in navigator && window.isSecureContext) {
+        navigator.serviceWorker.register('sw.js').catch(function () { /* sw.js not present here (e.g. instant preview) */ });
+      }
+    } catch (e) { /* sandboxed context - ignore */ }
+  }
+
+  /* ============================================================
+   * Init
+   * ==========================================================*/
+  function wireStockDeductButtons() {
+    document.getElementById('resultsContent').addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-deduct-stock]');
+      if (!btn) return;
+      var article = btn.getAttribute('data-deduct-stock');
+      var qty = parseInt(btn.getAttribute('data-deduct-qty'), 10) || 0;
+      if (!stock.articles[article]) return;
+      if (!confirm('Deduct ' + qty + ' bar' + (qty === 1 ? '' : 's') + ' of "' + article + '" from stock? Currently ' + stock.articles[article].qty + ' on hand.')) return;
+      stock.articles[article].qty = Math.max(0, stock.articles[article].qty - qty);
+      stock.articles[article].updatedAt = Date.now();
+      persistStock();
+      renderResults(currentProject().lastResults);
+      toast('Stock updated — ' + stock.articles[article].qty + ' bars of ' + article + ' left');
+    });
+  }
+
+  function init() {
+    state = loadState();
+    stock = loadStock();
+    syncAllArticlesToStock();
+    initTheme();
+    renderProjectSelect();
+    renderPartsTable();
+    renderProfilesTable();
+    renderTotals();
+    renderDashboard();
+    renderStockTable();
+    var proj = currentProject();
+    if (proj.lastResults) renderResults(proj.lastResults); else clearResults();
+    wirePartsTable();
+    wireToolbar();
+    wireTabs();
+    wireSettings();
+    wireProjectMenu();
+    wireExport();
+    wireDashboard();
+    wireStock();
+    wireStockDeductButtons();
+    registerServiceWorkerIfHosted();
+  }
+
+  window.__cutlistInit = init;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  /* Exported below: wireExport(), importExcelFile(), registerServiceWorkerIfHosted() */
+  window.__cutlist = { get state() { return state; }, currentProject: currentProject, touchProject: touchProject, persist: persist };
+})();
+</script>
+
+</body>
+</html>
