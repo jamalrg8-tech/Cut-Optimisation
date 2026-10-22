@@ -167,6 +167,19 @@
   .row-del:hover{color:var(--red); background:var(--red-soft); border-color:var(--red);}
   .row-del svg{width:14px; height:14px;}
 
+  .app-upload{
+    padding:5px 9px; border-radius:6px; border:1px dashed var(--border); background:transparent; color:var(--text-faint);
+    font-size:12px; white-space:nowrap; cursor:pointer;
+  }
+  .app-upload:hover{color:var(--accent); border-color:var(--accent);}
+  .app-thumb-wrap{position:relative; display:inline-flex; width:34px; height:34px;}
+  .app-thumb{width:34px; height:34px; border-radius:6px; object-fit:cover; border:1px solid var(--border); background:var(--panel-2);}
+  .app-clear{
+    position:absolute; top:-7px; right:-7px; width:16px; height:16px; border-radius:50%; border:1px solid var(--border);
+    background:var(--panel); color:var(--text-faint); font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer;
+  }
+  .app-clear:hover{color:var(--red); border-color:var(--red); background:var(--red-soft);}
+
   .empty-state{
     text-align:center; padding:36px 20px; color:var(--text-faint); font-size:13.5px;
   }
@@ -559,6 +572,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 /**
  * 1D Cutting Stock Optimizer
@@ -792,7 +806,10 @@
 </script>
 <script>
 /* Excel import logic - shared between node test harness and browser build.
-   Expects a global XLSX (SheetJS) to already be loaded. */
+   Expects a global XLSX (SheetJS) to already be loaded. JSZip is optional -
+   it is only needed for the best-effort "Application" image extraction; if
+   it isn't present, image extraction is simply skipped and everything else
+   still works. */
 (function (root) {
   'use strict';
 
@@ -812,6 +829,53 @@
     if (/^v(ert(ical)?)?\.?$/.test(low)) return 'Vertical';
     if (/^h(oriz(ontal)?)?\.?$/.test(low)) return 'Horizontal';
     return s;
+  }
+
+  // True for a raw cell value that looks like an orientation token
+  // (Vertical/Horizontal, or a recognised abbreviation of either) - used to
+  // find the Position column by its DATA rather than its header text.
+  function isPositionToken(v) {
+    var s = String(v == null ? '' : v).trim().toLowerCase();
+    if (!s) return false;
+    return /^v(ert(ical)?)?\.?$/.test(s) || /^h(oriz(ontal)?)?\.?$/.test(s);
+  }
+
+  // Scans the data rows (never the header row) for the column whose values
+  // are mostly Vertical/Horizontal-like tokens. This is a fallback/override
+  // for header-text detection: some real-world templates have the "Position"
+  // label merged across cells, or one column off from where the header text
+  // detector landed, which would otherwise import every other column fine
+  // and silently leave Position blank.
+  function detectPositionColumnByValue(rows, startRow) {
+    var counts = {};
+    for (var i = startRow; i < rows.length; i++) {
+      var row = rows[i] || [];
+      for (var c = 0; c < row.length; c++) {
+        if (isPositionToken(row[c])) counts[c] = (counts[c] || 0) + 1;
+      }
+    }
+    var bestCol = -1, bestCount = 0;
+    Object.keys(counts).forEach(function (c) {
+      if (counts[c] > bestCount) { bestCount = counts[c]; bestCol = Number(c); }
+    });
+    // Require at least 2 matching rows before trusting a value-based guess
+    // (one match could be a coincidental "V" in an unrelated column).
+    return bestCount >= 2 ? bestCol : -1;
+  }
+
+  // True if a given column's non-blank data rows are mostly orientation-like
+  // tokens - i.e. the header-text detector landed on a column that actually
+  // behaves like a Position column.
+  function columnLooksLikePosition(rows, startRow, col) {
+    if (col < 0) return false;
+    var total = 0, hits = 0;
+    for (var i = startRow; i < rows.length; i++) {
+      var v = (rows[i] || [])[col];
+      if (v == null || String(v).trim() === '') continue;
+      total++;
+      if (isPositionToken(v)) hits++;
+    }
+    return total > 0 && hits / total >= 0.5;
   }
 
   // Sheets that hold an aggregate/report view (e.g. the "Summary" tab these
@@ -854,14 +918,20 @@
           if (positionCol < 0 && /position/.test(h)) positionCol = c;
         });
         if (itemCols.length) {
-          return { articleCol: articleCol, descCol: descCol, positionCol: positionCol, qtyCol: qtyCol, itemCols: itemCols, startRow: Math.max(r, r2) + 1 };
+          var startRow = Math.max(r, r2) + 1;
+          // Value-based safety net - see detectGenericHeader for why.
+          if (!columnLooksLikePosition(rows, startRow, positionCol)) {
+            var byVal = detectPositionColumnByValue(rows, startRow);
+            if (byVal >= 0) positionCol = byVal;
+          }
+          return { articleCol: articleCol, descCol: descCol, positionCol: positionCol, qtyCol: qtyCol, itemCols: itemCols, startRow: startRow };
         }
       }
     }
     return null;
   }
 
-  function parseTailored(rows, header, sheetName) {
+  function parseTailored(rows, header, sheetName, imagesByRow) {
     var parts = [];
     var skipLabels = { width: true, height: true };
     for (var i = header.startRow; i < rows.length; i++) {
@@ -874,6 +944,7 @@
       var qty = header.qtyCol >= 0 ? Number(row[header.qtyCol]) : 1;
       if (!(qty > 0)) qty = 1;
       var position = header.positionCol >= 0 ? normalizePosition(row[header.positionCol]) : '';
+      var application = (imagesByRow && imagesByRow[i]) || '';
 
       header.itemCols.forEach(function (ic) {
         var raw = row[ic.col];
@@ -886,6 +957,7 @@
           qty: qty,
           tag: ic.label,
           position: position,
+          application: application,
           sheet: sheetName || ''
         });
       });
@@ -897,7 +969,7 @@
     var maxScan = Math.min(rows.length, 15);
     for (var r = 0; r < maxScan; r++) {
       var row = rows[r] || [];
-      var articleCol = -1, descCol = -1, lengthCol = -1, qtyCol = -1, positionCol = -1;
+      var articleCol = -1, descCol = -1, lengthCol = -1, qtyCol = -1, positionCol = -1, applicationCol = -1;
       var hasReportSignal = false;
       row.forEach(function (cell, c) {
         var h = normHeader(cell);
@@ -908,19 +980,31 @@
         if (lengthCol < 0 && /(cutting\s*length|cut\s*length|length)/.test(h)) lengthCol = c;
         if (qtyCol < 0 && /(qty|quantity|pcs|nos\b)/.test(h)) qtyCol = c;
         if (positionCol < 0 && /position/.test(h)) positionCol = c;
+        if (applicationCol < 0 && /application/.test(h)) applicationCol = c;
       });
       // A report/summary sheet (yield, bars required, waste...) is never a
       // raw cutting list, even if one of its columns happens to contain the
       // word "length" — skip this header candidate rather than misparsing it.
       if (hasReportSignal) continue;
       if (lengthCol >= 0) {
-        return { articleCol: articleCol, descCol: descCol, lengthCol: lengthCol, qtyCol: qtyCol, positionCol: positionCol, startRow: r + 1 };
+        var startRow = r + 1;
+        // Value-based safety net: trust the header-text match only if the
+        // data underneath it actually looks like Vertical/Horizontal; a
+        // merged header cell or a column-index mismatch in the source file
+        // can make the text detector land on the wrong column while every
+        // other column (Article/Description/Length/Qty) still lines up
+        // fine, which otherwise silently leaves Position blank on import.
+        if (!columnLooksLikePosition(rows, startRow, positionCol)) {
+          var byVal = detectPositionColumnByValue(rows, startRow);
+          if (byVal >= 0) positionCol = byVal;
+        }
+        return { articleCol: articleCol, descCol: descCol, lengthCol: lengthCol, qtyCol: qtyCol, positionCol: positionCol, applicationCol: applicationCol, startRow: startRow };
       }
     }
     return null;
   }
 
-  function parseGeneric(rows, header, sheetName) {
+  function parseGeneric(rows, header, sheetName, imagesByRow) {
     var parts = [];
     for (var i = header.startRow; i < rows.length; i++) {
       var row = rows[i] || [];
@@ -931,6 +1015,11 @@
       var article = header.articleCol >= 0 ? row[header.articleCol] : '';
       var desc = header.descCol >= 0 ? row[header.descCol] : '';
       var position = header.positionCol >= 0 ? normalizePosition(row[header.positionCol]) : '';
+      var application = (imagesByRow && imagesByRow[i]) || '';
+      if (!application && header.applicationCol >= 0) {
+        var appCell = row[header.applicationCol];
+        if (appCell != null && String(appCell).trim() !== '') application = String(appCell).trim();
+      }
       parts.push({
         article: article == null ? '' : String(article).trim(),
         description: desc == null ? '' : String(desc).trim(),
@@ -938,6 +1027,7 @@
         qty: qty,
         tag: '',
         position: position,
+        application: application,
         sheet: sheetName || ''
       });
     }
@@ -957,9 +1047,12 @@
    * than failing the whole import.
    *
    * @param {Workbook} wb - SheetJS workbook
+   * @param {Object} [imagesBySheet] - optional {sheetName: {rowIndex: dataUrl}}
+   *   map of images extracted from the Application column drawings, as
+   *   produced by extractAllImages().
    * @returns {{parts:Array, sheetsUsed:Array<{name:string,mode:string,count:number}>, sheetsSkipped:Array<string>, mode:string}}
    */
-  function parseWorkbook(wb) {
+  function parseWorkbook(wb, imagesBySheet) {
     var sheetNames = wb.SheetNames || [];
     var allParts = [];
     var sheetsUsed = [];
@@ -969,10 +1062,11 @@
       if (SKIP_SHEET_NAME_RE.test(name)) { sheetsSkipped.push(name); return; }
 
       var rows = sheetToRows(wb.Sheets[name]);
+      var imagesByRow = (imagesBySheet && imagesBySheet[name]) || null;
 
       var header = detectTailoredHeader(rows);
       if (header) {
-        var parts = parseTailored(rows, header, name);
+        var parts = parseTailored(rows, header, name, imagesByRow);
         if (parts.length) {
           allParts = allParts.concat(parts);
           sheetsUsed.push({ name: name, mode: 'tailored', count: parts.length });
@@ -982,7 +1076,7 @@
 
       var gh = detectGenericHeader(rows);
       if (gh) {
-        var parts2 = parseGeneric(rows, gh, name);
+        var parts2 = parseGeneric(rows, gh, name, imagesByRow);
         if (parts2.length) {
           allParts = allParts.concat(parts2);
           sheetsUsed.push({ name: name, mode: 'generic', count: parts2.length });
@@ -1001,11 +1095,209 @@
     };
   }
 
+  /* ============================================================
+   * Best-effort extraction of embedded cell images (e.g. the little
+   * diagram/icon some templates put in an "Application" column) straight
+   * out of the .xlsx's underlying OOXML zip. SheetJS's Community Edition
+   * (the build this app uses) can't read these, so this walks the
+   * workbook -> worksheet -> drawing -> media relationship chain by hand
+   * with JSZip. Any failure anywhere in this chain just means no images
+   * get attached - it never breaks the plain text import.
+   * ==========================================================*/
+
+  function xmlAttr(tag, attr) {
+    var m = tag.match(new RegExp(attr.replace(':', '\\:') + '\\s*=\\s*"([^"]*)"'));
+    return m ? m[1] : null;
+  }
+
+  function parseRelationships(xml) {
+    var map = {};
+    var re = /<Relationship\b[^>]*\/?>/g;
+    var m;
+    while ((m = re.exec(xml))) {
+      var tag = m[0];
+      var id = xmlAttr(tag, 'Id');
+      var target = xmlAttr(tag, 'Target');
+      if (id && target) map[id] = target;
+    }
+    return map;
+  }
+
+  // Resolves a (possibly relative, with "..") OOXML relationship target
+  // against the path of the file that referenced it. Some writers (e.g.
+  // openpyxl) emit zip-absolute targets like "/xl/media/image1.png" instead
+  // of a relative "../media/image1.png" - handle both.
+  function resolveOoxmlPath(basePath, relTarget) {
+    if (!relTarget || /^[a-z][a-z0-9+.-]*:\/\//i.test(relTarget)) return null; // external URL
+    if (relTarget.charAt(0) === '/') return relTarget.slice(1);
+    var baseDir = basePath.split('/');
+    baseDir.pop(); // drop the file name itself
+    var parts = relTarget.split('/');
+    parts.forEach(function (p) {
+      if (p === '..') baseDir.pop();
+      else if (p === '.' || p === '') { /* no-op */ }
+      else baseDir.push(p);
+    });
+    return baseDir.join('/');
+  }
+
+  function mimeForMediaPath(path) {
+    var ext = (path.split('.').pop() || '').toLowerCase();
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'gif') return 'image/gif';
+    if (ext === 'bmp') return 'image/bmp';
+    if (ext === 'svg') return 'image/svg+xml';
+    return null; // e.g. emf/wmf metafiles - not renderable as a plain <img>
+  }
+
+  // @param {JSZip} zip - a loaded JSZip instance for the .xlsx
+  // @returns {Promise<Object>} {sheetName: {rowIndex: dataUrl}}
+  function extractAllImages(zip) {
+    var imagesBySheet = {};
+    var workbookXmlFile = zip.file('xl/workbook.xml');
+    if (!workbookXmlFile) return Promise.resolve(imagesBySheet);
+
+    return workbookXmlFile.async('string').then(function (workbookXml) {
+      var workbookRelsFile = zip.file('xl/_rels/workbook.xml.rels');
+      return Promise.resolve(workbookRelsFile ? workbookRelsFile.async('string') : '').then(function (relsXml) {
+        var workbookRels = relsXml ? parseRelationships(relsXml) : {};
+
+        var sheetEntries = [];
+        var sheetRe = /<sheet\b[^>]*\/?>/g, sm;
+        while ((sm = sheetRe.exec(workbookXml))) {
+          var tag = sm[0];
+          var name = xmlAttr(tag, 'name');
+          var rId = xmlAttr(tag, 'r:id');
+          if (name && rId) sheetEntries.push({ name: name, rId: rId });
+        }
+
+        var chain = Promise.resolve();
+        sheetEntries.forEach(function (se) {
+          chain = chain.then(function () {
+            var target = workbookRels[se.rId];
+            var sheetPath = target && resolveOoxmlPath('xl/workbook.xml', target);
+            var sheetFile = sheetPath && zip.file(sheetPath);
+            if (!sheetFile) return;
+
+            return sheetFile.async('string').then(function (sheetXml) {
+              var drawingRefMatch = sheetXml.match(/<drawing\b[^>]*\/?>/);
+              if (!drawingRefMatch) return;
+              var drawingRId = xmlAttr(drawingRefMatch[0], 'r:id');
+              if (!drawingRId) return;
+
+              var sheetDirParts = sheetPath.split('/');
+              var sheetFileName = sheetDirParts.pop();
+              var sheetRelsPath = sheetDirParts.concat(['_rels', sheetFileName + '.rels']).join('/');
+              var sheetRelsFile = zip.file(sheetRelsPath);
+              if (!sheetRelsFile) return;
+
+              return sheetRelsFile.async('string').then(function (sheetRelsXml) {
+                var sheetRels = parseRelationships(sheetRelsXml);
+                var drawingTarget = sheetRels[drawingRId];
+                var drawingPath = drawingTarget && resolveOoxmlPath(sheetPath, drawingTarget);
+                var drawingFile = drawingPath && zip.file(drawingPath);
+                if (!drawingFile) return;
+
+                return drawingFile.async('string').then(function (drawingXml) {
+                  var drawingDirParts = drawingPath.split('/');
+                  var drawingFileName = drawingDirParts.pop();
+                  var drawingRelsPath = drawingDirParts.concat(['_rels', drawingFileName + '.rels']).join('/');
+                  var drawingRelsFile = zip.file(drawingRelsPath);
+
+                  return Promise.resolve(drawingRelsFile ? drawingRelsFile.async('string') : '').then(function (drawingRelsXml) {
+                    var drawingRels = drawingRelsXml ? parseRelationships(drawingRelsXml) : {};
+
+                    // Drawing XML elements are usually written with an
+                    // "xdr:"/"a:" namespace prefix (how Excel itself writes
+                    // them), but some writers (e.g. openpyxl) bind the
+                    // drawing namespace as the element's default namespace
+                    // instead, leaving the prefix off entirely - match both.
+                    var anchors = [];
+                    var anchorRe = /<(?:\w+:)?(twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/(?:\w+:)?\1>/g;
+                    var am;
+                    while ((am = anchorRe.exec(drawingXml))) {
+                      var block = am[0];
+                      var fromMatch = block.match(/<(?:\w+:)?from>([\s\S]*?)<\/(?:\w+:)?from>/);
+                      if (!fromMatch) continue;
+                      var rowMatch = fromMatch[1].match(/<(?:\w+:)?row>(\d+)<\/(?:\w+:)?row>/);
+                      var colMatch = fromMatch[1].match(/<(?:\w+:)?col>(\d+)<\/(?:\w+:)?col>/);
+                      if (!rowMatch) continue;
+                      var blipMatch = block.match(/<(?:\w+:)?blip\b[^>]*\br:embed\s*=\s*"([^"]+)"/);
+                      if (!blipMatch) continue;
+                      anchors.push({
+                        row: parseInt(rowMatch[1], 10),
+                        col: colMatch ? parseInt(colMatch[1], 10) : -1,
+                        embedRId: blipMatch[1]
+                      });
+                    }
+
+                    var imagesByRow = {};
+                    var anchorChain = Promise.resolve();
+                    anchors.forEach(function (a) {
+                      anchorChain = anchorChain.then(function () {
+                        var mediaTarget = drawingRels[a.embedRId];
+                        var mediaPath = mediaTarget && resolveOoxmlPath(drawingPath, mediaTarget);
+                        var mediaFile = mediaPath && zip.file(mediaPath);
+                        var mime = mediaPath && mimeForMediaPath(mediaPath);
+                        if (!mediaFile || !mime) return;
+                        return mediaFile.async('base64').then(function (b64) {
+                          var existing = imagesByRow[a.row];
+                          // Prefer the right-most anchored image on a row (the
+                          // Application column is usually the last one) but
+                          // keep whatever was found first as a fallback.
+                          if (!existing || (a.col >= 0 && a.col > existing.col)) {
+                            imagesByRow[a.row] = { col: a.col, dataUrl: 'data:' + mime + ';base64,' + b64 };
+                          }
+                        });
+                      });
+                    });
+
+                    return anchorChain.then(function () {
+                      var flat = {};
+                      Object.keys(imagesByRow).forEach(function (r) { flat[r] = imagesByRow[r].dataUrl; });
+                      if (Object.keys(flat).length) imagesBySheet[se.name] = flat;
+                    });
+                  });
+                });
+              });
+            });
+          }).catch(function () { /* this sheet's images failed - skip, keep going */ });
+        });
+
+        return chain.then(function () { return imagesBySheet; });
+      });
+    }).catch(function () { return imagesBySheet; });
+  }
+
+  // High-level helper used by the app: parses the workbook AND attaches any
+  // embedded Application-column images it can find. Falls back to a plain
+  // parseWorkbook() (no images) if JSZip isn't available or anything in the
+  // image-extraction chain fails - the text/number import always succeeds
+  // independently of this.
+  function parseWorkbookWithImages(data) {
+    var wb = XLSX.read(data, { type: 'array' });
+    if (typeof JSZip === 'undefined') {
+      return Promise.resolve(parseWorkbook(wb));
+    }
+    return JSZip.loadAsync(data).then(function (zip) {
+      return extractAllImages(zip);
+    }).catch(function () {
+      return {};
+    }).then(function (imagesBySheet) {
+      return parseWorkbook(wb, imagesBySheet);
+    });
+  }
+
   var ExcelImport = {
     parseWorkbook: parseWorkbook,
+    parseWorkbookWithImages: parseWorkbookWithImages,
+    extractAllImages: extractAllImages,
     detectTailoredHeader: detectTailoredHeader,
     detectGenericHeader: detectGenericHeader,
-    normalizePosition: normalizePosition
+    normalizePosition: normalizePosition,
+    isPositionToken: isPositionToken,
+    detectPositionColumnByValue: detectPositionColumnByValue
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = ExcelImport;
   else root.ExcelImport = ExcelImport;
@@ -1380,7 +1672,7 @@
   /* ============================================================
    * Parts table
    * ==========================================================*/
-  var PART_FIELDS = ['article', 'description', 'length', 'qty', 'tag', 'position'];
+  var PART_FIELDS = ['article', 'description', 'length', 'qty', 'tag', 'position', 'application'];
 
   function addPart(data) {
     var proj = currentProject();
@@ -1392,9 +1684,46 @@
       qty: data.qty != null ? data.qty : 1,
       tag: data.tag || '',
       position: data.position || '',
+      application: data.application || '',
       sheet: data.sheet || ''
     });
     if (data.article) ensureArticleInStock(data.article, data.description);
+  }
+
+  // A single shared hidden <input type="file"> for the Application-image
+  // upload button on each Parts List row (one element, reused for every
+  // row, rather than one per row - the table is fully re-rendered on every
+  // edit so a per-row input would be re-created and lose its wiring anyway).
+  var pendingAppPartId = null;
+  var appFileInputEl = null;
+  function getAppFileInput() {
+    if (appFileInputEl) return appFileInputEl;
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      var partId = pendingAppPartId;
+      input.value = '';
+      pendingAppPartId = null;
+      if (!file || !partId) return;
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var proj = currentProject();
+        var part = proj.parts.find(function (p) { return p.id === partId; });
+        if (part) {
+          part.application = e.target.result;
+          touchProject();
+          renderPartsTable();
+        }
+      };
+      reader.onerror = function () { toast('Could not read that image'); };
+      reader.readAsDataURL(file);
+    });
+    document.body.appendChild(input);
+    appFileInputEl = input;
+    return appFileInputEl;
   }
 
   function renderPartsTable() {
@@ -1414,6 +1743,10 @@
       var posSelect = '<select data-field="position">' + posOptions.map(function (o) {
         return '<option value="' + escapeHtml(o) + '"' + (o === pos ? ' selected' : '') + '>' + (o === '' ? '—' : escapeHtml(o)) + '</option>';
       }).join('') + '</select>';
+      var appCell = p.application
+        ? ('<div class="app-thumb-wrap"><img class="app-thumb" src="' + escapeHtml(p.application) + '" alt="Application reference">' +
+           '<button type="button" class="app-clear" title="Remove image">×</button></div>')
+        : '<button type="button" class="app-upload" title="Upload a reference image for this row">+ Image</button>';
       return (
         '<tr data-id="' + p.id + '">' +
         '<td style="color:var(--text-faint); font-size:11.5px;">' + (i + 1) + '</td>' +
@@ -1422,7 +1755,7 @@
         '<td class="num"><input data-field="length" type="number" min="0" step="0.1" value="' + escapeHtml(p.length) + '" placeholder="mm"></td>' +
         '<td class="num"><input data-field="qty" type="number" min="1" step="1" value="' + escapeHtml(p.qty) + '"></td>' +
         '<td>' + posSelect + '</td>' +
-        '<td><input data-field="tag" value="' + escapeHtml(p.tag) + '" placeholder="optional"></td>' +
+        '<td>' + appCell + '</td>' +
         '<td><button class="row-del" title="Delete row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg></button></td>' +
         '</tr>'
       );
@@ -1431,7 +1764,7 @@
     wrap.innerHTML =
       '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
       '<th style="width:30px;">#</th><th style="min-width:110px;">Article No.</th><th style="min-width:160px;">Description</th>' +
-      '<th style="width:100px;">Length (mm)</th><th style="width:70px;">Qty</th><th style="width:110px;">Position</th><th style="min-width:100px;">Tag</th><th style="width:34px;"></th>' +
+      '<th style="width:100px;">Length (mm)</th><th style="width:70px;">Qty</th><th style="width:110px;">Position</th><th style="width:90px;">Application</th><th style="width:34px;"></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
@@ -1527,6 +1860,27 @@
       renderPartsTable();
       renderProfilesTable();
       renderTotals();
+    });
+    wrap.addEventListener('click', function (e) {
+      var upBtn = e.target.closest('.app-upload');
+      if (upBtn) {
+        var tr1 = upBtn.closest('tr');
+        pendingAppPartId = tr1.getAttribute('data-id');
+        getAppFileInput().click();
+        return;
+      }
+      var clearBtn = e.target.closest('.app-clear');
+      if (clearBtn) {
+        var tr2 = clearBtn.closest('tr');
+        var id2 = tr2.getAttribute('data-id');
+        var proj2 = currentProject();
+        var part2 = proj2.parts.find(function (p) { return p.id === id2; });
+        if (part2) {
+          part2.application = '';
+          touchProject();
+          renderPartsTable();
+        }
+      }
     });
 
     document.getElementById('profilesTableWrap').addEventListener('input', function (e) {
@@ -2196,10 +2550,23 @@
     if (typeof XLSX === 'undefined') { toast('Excel import library did not load (check your connection)'); return; }
     var reader = new FileReader();
     reader.onload = function (e) {
+      var data;
       try {
-        var data = new Uint8Array(e.target.result);
-        var wb = XLSX.read(data, { type: 'array' });
-        var res = ExcelImport.parseWorkbook(wb);
+        data = new Uint8Array(e.target.result);
+      } catch (err) {
+        console.error(err);
+        toast('Could not read that Excel file (' + (err && err.message ? err.message : 'unknown error') + ')');
+        return;
+      }
+      // parseWorkbookWithImages also makes a best-effort attempt to pull any
+      // embedded Application-column images out of the .xlsx; if that step
+      // isn't available or fails for any reason it transparently falls back
+      // to a plain (image-less) parse, so the text/number import is never
+      // blocked by it.
+      var importPromise = (ExcelImport.parseWorkbookWithImages
+        ? ExcelImport.parseWorkbookWithImages(data)
+        : Promise.resolve(ExcelImport.parseWorkbook(XLSX.read(data, { type: 'array' }))));
+      importPromise.then(function (res) {
         if (!res.parts.length) {
           toast('No recognisable cutting-list data found in that file');
           return;
@@ -2222,11 +2589,13 @@
         if (res.sheetsSkipped.length) {
           msg += ' — skipped ' + res.sheetsSkipped.length + ' sheet' + (res.sheetsSkipped.length === 1 ? '' : 's');
         }
+        var withImages = res.parts.filter(function (p) { return p.application && p.application.indexOf('data:') === 0; }).length;
+        if (withImages) msg += ' · ' + withImages + ' with an Application image';
         toast(msg);
-      } catch (err) {
+      }).catch(function (err) {
         console.error(err);
         toast('Could not read that Excel file (' + (err && err.message ? err.message : 'unknown error') + ')');
-      }
+      });
     };
     reader.readAsArrayBuffer(file);
   }
@@ -2291,8 +2660,11 @@
       });
     });
 
-    var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Position', 'Tag', 'Source Sheet']];
-    proj.parts.forEach(function (p) { partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.position || '', p.tag, p.sheet || '']); });
+    var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Position', 'Tag', 'Application Image', 'Source Sheet']];
+    proj.parts.forEach(function (p) {
+      var appVal = p.application ? (p.application.indexOf('data:') === 0 ? 'Yes' : p.application) : '';
+      partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.position || '', p.tag, appVal, p.sheet || '']);
+    });
 
     var wb = XLSX.utils.book_new();
     var ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);

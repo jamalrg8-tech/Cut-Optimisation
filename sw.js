@@ -3,7 +3,7 @@
  * keeps working offline after the first successful load. Bump CACHE_NAME
  * whenever the app shell files change so old caches are cleared out.
  */
-var CACHE_NAME = 'eurolux-cut-optimization-v5';
+var CACHE_NAME = 'eurolux-cut-optimization-v6';
 var APP_SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ var APP_SHELL = [
   './icons/apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap'
 ];
 

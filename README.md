@@ -16,9 +16,10 @@ icons/          app icons (192, 512, maskable, apple-touch, favicon)
 vercel.json     sets correct no-cache headers for sw.js / manifest.json on Vercel
 ```
 
-`index.html` loads three small resources from public CDNs on first run: two
-libraries for Excel/PDF export (SheetJS and jsPDF, from cdnjs) and a Google
-Fonts stylesheet (Barlow Semi Condensed / IBM Plex Sans / IBM Plex Mono). The
+`index.html` loads a few small resources from public CDNs on first run:
+three libraries for Excel import/export, PDF export, and reading embedded
+Excel images (SheetJS, jsPDF and JSZip, all from cdnjs) and a Google Fonts
+stylesheet (Barlow Semi Condensed / IBM Plex Sans / IBM Plex Mono). The
 service worker caches all of them, so the app keeps working offline afterwards
 — export included — once it's been opened online at least once.
 
@@ -51,14 +52,36 @@ Click **Import Excel** on the Parts List tab and pick a workbook. The import:
   Article No. / Description, or alongside the per-item columns). Values are
   normalised to "Vertical" or "Horizontal" (abbreviations like "V"/"H" or
   "Vert"/"Horiz" are recognised too); anything else is kept as typed rather
-  than discarded. Position shows up as an editable dropdown on each row in
-  the Parts List, and as its own column in the Results tab's per-bar parts
-  breakdown and in the Excel export — it's for your reference on the cut
-  list and doesn't affect how the optimiser packs the bars.
+  than discarded. If the column header is in an unusual spot (e.g. a merged
+  header cell left the label one column off from the actual data), the
+  import also scans the data itself for Vertical/Horizontal-looking values
+  and uses that column instead, so Position still comes in correctly even
+  then. Position shows up as an editable dropdown on each row in the Parts
+  List, and as its own column in the Results tab's per-bar parts breakdown
+  and in the Excel export — it's for your reference on the cut list and
+  doesn't affect how the optimiser packs the bars.
+- **Picks up an "Application" reference image** per row when the workbook
+  has a small diagram/icon embedded in an Application column (this is a
+  best-effort extraction straight from the Excel file's internal structure,
+  so unusual templates may not carry an image over — in that case, or for
+  any row, you can attach or replace one yourself with the **+ Image**
+  button on that row in the Parts List).
 
 You can also paste rows (Job menu → Parts List → Paste rows) using
 `Article No, Description, Length(mm), Qty, Position` — Description, Qty and
-Position are all optional.
+Position are all optional. (Pasted rows don't carry an image; add one with
+the row's **+ Image** button if needed.)
+
+## Parts List columns
+
+Article No., Description, Length, Qty and Position are editable directly
+in the table. **Application** shows a thumbnail of that row's reference
+image when one is set (from import or upload) — click the small **×** on
+the thumbnail to remove it, or **+ Image** to attach/replace one from your
+computer. (The old "Tag" column, used internally to tell apart multiple
+pieces cut from the same Article No. on a tailored multi-item cut-list, is
+no longer shown — it's still tracked in the background and still appears
+in the Results breakdown and Excel export.)
 
 ## Stock register
 
@@ -130,7 +153,7 @@ Browsers cache the service worker aggressively by nature, so after editing
 `index.html` bump the version string in `sw.js`:
 
 ```js
-var CACHE_NAME = 'eurolux-cut-optimization-v5';   // was v4
+var CACHE_NAME = 'eurolux-cut-optimization-v6';   // was v5
 ```
 
 That forces every visitor's browser to fetch the new files next time they
