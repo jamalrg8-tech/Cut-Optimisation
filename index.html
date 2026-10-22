@@ -180,6 +180,16 @@
   }
   .app-clear:hover{color:var(--red); border-color:var(--red); background:var(--red-soft);}
 
+  .seg{display:inline-flex; background:var(--panel-2); border:1px solid var(--border); border-radius:9px; padding:3px; gap:2px;}
+  .seg-btn{padding:6px 13px; border-radius:6px; border:none; background:transparent; color:var(--text-dim); font-family:var(--display); font-size:12.5px; font-weight:650; letter-spacing:.01em;}
+  .seg-btn.active{background:var(--panel); color:var(--text); box-shadow:var(--shadow);}
+  .seg-btn:not(.active):hover{color:var(--text);}
+
+  .sheet-block{margin-bottom:10px;}
+  .sheet-block + .sheet-block{border-top:2px solid var(--border); padding-top:22px; margin-top:6px;}
+  .sheet-block-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:0 0 10px; flex-wrap:wrap;}
+  .sheet-block-head h3{font-family:var(--display); font-size:17px; font-weight:700; color:var(--accent);}
+
   .empty-state{
     text-align:center; padding:36px 20px; color:var(--text-faint); font-size:13.5px;
   }
@@ -446,6 +456,10 @@
   <!-- ============= RESULTS TAB ============= -->
   <div class="tab-panel" id="tab-results">
     <div class="row" id="resultsToolbar" style="display:none; margin-bottom:14px;">
+      <div class="seg" id="resultsViewToggle" style="display:none;">
+        <button type="button" class="seg-btn active" data-view="combined">Whole Job</button>
+        <button type="button" class="seg-btn" data-view="bysheet">By Sheet</button>
+      </div>
       <span class="spacer"></span>
       <button class="btn sm" id="btnExportExcel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
@@ -2032,7 +2046,7 @@
       return;
     }
 
-    var optParts = validParts.map(function (p) {
+    function toOptPart(p) {
       var article = (p.article || '').trim() || '(no article no.)';
       return {
         id: p.id,
@@ -2043,24 +2057,50 @@
         length: parseNum(p.length),
         qty: parseInt(p.qty, 10)
       };
-    });
+    }
+    var stockLengthsFn = function (key) {
+      var ov = proj.articleSettings[key];
+      if (ov && ov.stockLengths && ov.stockLengths.length) return ov.stockLengths;
+      return proj.settings.defaultStockLengths.length ? proj.settings.defaultStockLengths : [6000];
+    };
+    var kerfSettingsFn = function () { return { kerf: proj.settings.kerf, leadIn: proj.settings.leadIn }; };
 
-    var results = CutOptimizer.optimizeByGroup(
-      optParts,
-      function (key) {
-        var ov = proj.articleSettings[key];
-        if (ov && ov.stockLengths && ov.stockLengths.length) return ov.stockLengths;
-        return proj.settings.defaultStockLengths.length ? proj.settings.defaultStockLengths : [6000];
-      },
-      function () { return { kerf: proj.settings.kerf, leadIn: proj.settings.leadIn }; }
-    );
-
+    var results = CutOptimizer.optimizeByGroup(validParts.map(toOptPart), stockLengthsFn, kerfSettingsFn);
     var summary = buildJobSummary(results, proj);
     proj.lastResults = { computedAt: Date.now(), byArticle: results, summary: summary };
+
+    // Per-sheet breakdown: only worth computing (and showing) when the
+    // import actually spanned more than one sheet/tab in the workbook -
+    // parts typed/pasted in by hand, or from a single-sheet import, carry
+    // no sheet tag and there'd be nothing meaningful to split out.
+    var sheetNames = [];
+    var seenSheets = {};
+    validParts.forEach(function (p) {
+      var s = (p.sheet || '').trim();
+      if (s && !seenSheets[s]) { seenSheets[s] = true; sheetNames.push(s); }
+    });
+    if (sheetNames.length > 1) {
+      var sheets = sheetNames.map(function (name) {
+        var sheetParts = validParts.filter(function (p) { return (p.sheet || '').trim() === name; });
+        var sheetResults = CutOptimizer.optimizeByGroup(sheetParts.map(toOptPart), stockLengthsFn, kerfSettingsFn);
+        return { sheet: name, byArticle: sheetResults, summary: buildJobSummary(sheetResults, proj) };
+      });
+      // Parts with no sheet tag at all (e.g. added by hand alongside an
+      // import) still need somewhere to show up in the by-sheet view.
+      var unassigned = validParts.filter(function (p) { return !(p.sheet || '').trim(); });
+      if (unassigned.length) {
+        var uResults = CutOptimizer.optimizeByGroup(unassigned.map(toOptPart), stockLengthsFn, kerfSettingsFn);
+        sheets.push({ sheet: '(not from a sheet)', byArticle: uResults, summary: buildJobSummary(uResults, proj) });
+      }
+      proj.lastResultsBySheet = { computedAt: Date.now(), sheets: sheets };
+    } else {
+      proj.lastResultsBySheet = null;
+    }
+
     touchProject();
     renderResults(proj.lastResults);
     activateTab('results');
-    toast('Optimisation complete');
+    toast('Optimisation complete' + (proj.lastResultsBySheet ? ' \u2014 whole-job and per-sheet views are both ready' : ''));
   }
 
   function buildJobSummary(results, proj) {
@@ -2112,15 +2152,18 @@
     if (name === 'stock') renderStockTable();
   }
 
-  function renderResults(data) {
-    document.getElementById('resultsToolbar').style.display = data.byArticle.length ? '' : 'none';
+  // Builds the "summary card + profile cards" HTML for one results set
+  // (either the whole-job combined results, or one sheet's own results in
+  // the By Sheet view) - a plain string, so it can be dropped into either
+  // the single combined view or stacked repeatedly inside the by-sheet view.
+  function renderResultsSummaryAndCards(data, proj, opts) {
+    opts = opts || {};
     var s = data.summary;
-    var wasteM = s.totalWaste / 1000;
     var wastePct = s.usedStocksTotalLength > 0 ? (s.totalWaste / s.usedStocksTotalLength) * 100 : 0;
-    var proj = currentProject();
 
     var html = '';
-    html += '<div class="card"><div class="card-head"><h3>Job summary</h3><span class="hint">Computed ' + new Date(data.computedAt).toLocaleString() + '</span></div>';
+    html += '<div class="card"><div class="card-head"><h3>' + escapeHtml(opts.heading || 'Job summary') + '</h3>' +
+      (opts.compact ? '' : '<span class="hint">Computed ' + new Date(data.computedAt).toLocaleString() + '</span>') + '</div>';
     html += '<div class="stat-grid">';
     html += statBox('Profiles', s.profiles, '', '');
     html += statBox('Bars required', fmt(s.totalBars), '', 'accent');
@@ -2153,16 +2196,82 @@
     data.byArticle.forEach(function (r) {
       html += renderProfileCard(r, proj);
     });
+    return html;
+  }
 
+  // 'combined' (the default) or 'bysheet' - which Results view is currently
+  // on screen. Purely a transient UI preference, not saved with the job.
+  var resultsView = 'combined';
+
+  function renderResults(data) {
+    resultsView = 'combined';
+    document.getElementById('resultsToolbar').style.display = data.byArticle.length ? '' : 'none';
+    var proj = currentProject();
+    document.getElementById('resultsContent').innerHTML = renderResultsSummaryAndCards(data, proj);
+    wireProfileCards();
+    updateResultsViewToggle();
+  }
+
+  // Each sheet is optimised completely on its own here (as if it alone were
+  // being cut), stacked one block per sheet - separate from the combined
+  // Whole Job view, where same-profile parts from different sheets can
+  // share a bar and so may need fewer bars in total.
+  function renderResultsBySheet(bySheetData, proj) {
+    resultsView = 'bysheet';
+    document.getElementById('resultsToolbar').style.display = '';
+    var html = '<div class="hint" style="display:block; margin:-6px 0 16px;">Each sheet below is optimised on its own, as if it were cut separately from the others \u2014 since parts of the same profile from different sheets can\u2019t share a bar here, this can need slightly more stock in total than the combined <b>Whole Job</b> view.</div>';
+    bySheetData.sheets.forEach(function (sd) {
+      html += '<div class="sheet-block">';
+      html += '<div class="sheet-block-head"><h3>' + escapeHtml(sd.sheet) + '</h3><span class="hint">' +
+        fmt(sd.summary.totalBars) + ' bar' + (sd.summary.totalBars === 1 ? '' : 's') + ' \u00b7 ' + fmt(sd.summary.yieldPct, 1) + '% yield</span></div>';
+      html += renderResultsSummaryAndCards({ computedAt: bySheetData.computedAt, byArticle: sd.byArticle, summary: sd.summary }, proj, { heading: 'Sheet summary', compact: true });
+      html += '</div>';
+    });
     document.getElementById('resultsContent').innerHTML = html;
     wireProfileCards();
+    updateResultsViewToggle();
+  }
+
+  // Re-renders whichever Results view (combined/by-sheet) is currently
+  // selected - used after something changes the underlying numbers (a
+  // stock deduction, a stock-quantity edit) without switching the view the
+  // user is looking at out from under them.
+  function renderActiveResults() {
+    var proj = currentProject();
+    if (!proj.lastResults) { clearResults(); return; }
+    if (resultsView === 'bysheet' && proj.lastResultsBySheet) renderResultsBySheet(proj.lastResultsBySheet, proj);
+    else renderResults(proj.lastResults);
+  }
+
+  function updateResultsViewToggle() {
+    var wrap = document.getElementById('resultsViewToggle');
+    if (!wrap) return;
+    var proj = currentProject();
+    var available = !!(proj.lastResultsBySheet && proj.lastResultsBySheet.sheets.length > 1);
+    wrap.style.display = available ? '' : 'none';
+    Array.prototype.forEach.call(wrap.querySelectorAll('.seg-btn'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-view') === resultsView);
+    });
+  }
+
+  function wireResultsViewToggle() {
+    var wrap = document.getElementById('resultsViewToggle');
+    wrap.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      var view = btn.getAttribute('data-view');
+      if (view === resultsView) return;
+      var proj = currentProject();
+      if (view === 'bysheet' && proj.lastResultsBySheet) renderResultsBySheet(proj.lastResultsBySheet, proj);
+      else if (proj.lastResults) renderResults(proj.lastResults);
+    });
   }
 
   function renderResultsStockBadgesIfVisible() {
     var proj = currentProject();
     var resultsTab = document.getElementById('tab-results');
     if (proj.lastResults && resultsTab && resultsTab.classList.contains('active')) {
-      renderResults(proj.lastResults);
+      renderActiveResults();
     }
   }
 
@@ -2603,16 +2712,16 @@
   /* ============================================================
    * Export: Excel
    * ==========================================================*/
-  function exportExcelReport() {
-    var proj = currentProject();
-    if (!proj.lastResults) { toast('Run "Optimise cutting layout" first'); return; }
-    if (typeof XLSX === 'undefined') { toast('Excel export library did not load (check your connection)'); return; }
-    var data = proj.lastResults;
+  // Builds the Summary + Cutting Layouts sheets (as arrays-of-arrays) for
+  // one results set - the combined whole-job results, or one sheet's own
+  // results when building the per-sheet tabs below.
+  function buildSummaryAndLayoutsAoa(data, proj, viewLabel) {
     var hasCost = data.summary.hasCost;
 
     var summaryAoa = [
       ['Eurolux Doors and Windows, Cut Optimization — SCHUCO profiles'],
       ['Job', proj.name],
+      ['View', viewLabel],
       ['Generated', new Date(data.computedAt).toLocaleString()],
       ['Kerf (mm)', proj.settings.kerf],
       []
@@ -2660,19 +2769,55 @@
       });
     });
 
+    return { summaryAoa: summaryAoa, layoutsAoa: layoutsAoa };
+  }
+
+  // Excel sheet names: max 31 chars, no : \ / ? * [ ] and must be unique
+  // within the workbook - sanitise a per-sheet tab name and dedupe against
+  // names already used so far in this export.
+  function excelSheetName(raw, usedLower) {
+    var cleaned = String(raw).replace(/[:\\\/?*\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleaned) cleaned = 'Sheet';
+    if (cleaned.length > 31) cleaned = cleaned.slice(0, 31);
+    var base = cleaned, n = 2;
+    while (usedLower[cleaned.toLowerCase()]) {
+      var suffix = ' (' + n + ')';
+      cleaned = base.slice(0, 31 - suffix.length) + suffix;
+      n++;
+    }
+    usedLower[cleaned.toLowerCase()] = true;
+    return cleaned;
+  }
+
+  function exportExcelReport() {
+    var proj = currentProject();
+    if (!proj.lastResults) { toast('Run "Optimise cutting layout" first'); return; }
+    if (typeof XLSX === 'undefined') { toast('Excel export library did not load (check your connection)'); return; }
+
+    var usedSheetNames = {};
+    var wb = XLSX.utils.book_new();
+
+    var hasPerSheet = !!(proj.lastResultsBySheet && proj.lastResultsBySheet.sheets.length > 1);
+    var combinedBuilt = buildSummaryAndLayoutsAoa(proj.lastResults, proj, hasPerSheet ? 'Whole Job (combined)' : 'Whole Job');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(combinedBuilt.summaryAoa), excelSheetName('Summary', usedSheetNames));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(combinedBuilt.layoutsAoa), excelSheetName('Cutting Layouts', usedSheetNames));
+
+    if (hasPerSheet) {
+      proj.lastResultsBySheet.sheets.forEach(function (sd) {
+        var sheetData = { computedAt: proj.lastResultsBySheet.computedAt, byArticle: sd.byArticle, summary: sd.summary };
+        var built = buildSummaryAndLayoutsAoa(sheetData, proj, 'Sheet: ' + sd.sheet + ' (optimised separately)');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(built.summaryAoa), excelSheetName('Sum - ' + sd.sheet, usedSheetNames));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(built.layoutsAoa), excelSheetName('Cuts - ' + sd.sheet, usedSheetNames));
+      });
+    }
+
     var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Position', 'Tag', 'Application Image', 'Source Sheet']];
     proj.parts.forEach(function (p) {
       var appVal = p.application ? (p.application.indexOf('data:') === 0 ? 'Yes' : p.application) : '';
       partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.position || '', p.tag, appVal, p.sheet || '']);
     });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(partsAoa), excelSheetName('Parts Input', usedSheetNames));
 
-    var wb = XLSX.utils.book_new();
-    var ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);
-    var ws2 = XLSX.utils.aoa_to_sheet(layoutsAoa);
-    var ws3 = XLSX.utils.aoa_to_sheet(partsAoa);
-    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
-    XLSX.utils.book_append_sheet(wb, ws2, 'Cutting Layouts');
-    XLSX.utils.book_append_sheet(wb, ws3, 'Parts Input');
     var bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     saveFileSmart(safeFilename(proj.name) + '_cutting_optimisation.xlsx', bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').then(function (res) {
       if (res.ok) { toast('Excel report saved'); return; }
@@ -2718,86 +2863,115 @@
       y += opts.gap != null ? opts.gap : size * 1.35;
     }
 
+    var hasPerSheet = !!(proj.lastResultsBySheet && proj.lastResultsBySheet.sheets.length > 1);
+
     line('Eurolux Doors and Windows', 18, { bold: true, gap: 20 });
     line('Cut Optimization Report — SCHUCO profiles', 11, { color: [120, 130, 140], gap: 18 });
     line(proj.name, 12, { color: [90, 100, 110], gap: 16 });
-    line('Generated ' + new Date(data.computedAt).toLocaleString() + '   ·   Kerf: ' + proj.settings.kerf + 'mm   ·   ' + data.summary.profiles + ' profile(s)   ·   ' + data.summary.totalBars + ' bars required   ·   Yield ' + data.summary.yieldPct.toFixed(1) + '%', 9.5, { color: [110, 120, 130], gap: 20 });
+    line('Generated ' + new Date(data.computedAt).toLocaleString() + '   ·   Kerf: ' + proj.settings.kerf + 'mm   ·   ' + data.summary.profiles + ' profile(s)   ·   ' + data.summary.totalBars + ' bars required   ·   Yield ' + data.summary.yieldPct.toFixed(1) + '%' + (hasPerSheet ? '   ·   includes a per-sheet breakdown below' : ''), 9.5, { color: [110, 120, 130], gap: 20 });
 
     doc.setDrawColor(220, 224, 228);
     doc.line(margin, y, pageW - margin, y);
     y += 18;
 
-    data.byArticle.forEach(function (r) {
-      var res = r.result;
-      checkBreak(60);
-      line(r.group + (r.groupLabel ? '  —  ' + r.groupLabel : ''), 13, { bold: true, gap: 16 });
-      var stockStr = res.requiredStocks.map(function (s) { return s.quantity + '× ' + s.stockLength + 'mm'; }).join(', ');
-      line('Bars required: ' + stockStr + '   ·   Yield: ' + res.yieldPct.toFixed(1) + '%   ·   Cuts: ' + res.totalCuts + '   ·   Waste: ' + res.totalWaste.toFixed(0) + 'mm', 9.5, { color: [100, 110, 120], gap: 14 });
-
-      if (res.errors.length) {
-        doc.setTextColor(190, 60, 60);
-        doc.setFontSize(9.5);
-        res.errors.forEach(function (e) { doc.text('⚠ ' + e.message + ' (×' + e.qty + ')', margin, y); y += 13; });
-        y += 4;
+    // Renders one results set's section (job-summary header line is already
+    // printed by the caller; this prints the per-article/layout detail) -
+    // used once for the combined Whole Job results, then once more per
+    // sheet when a per-sheet breakdown is available.
+    function renderSection(sectionData, heading) {
+      if (heading) {
+        checkBreak(36);
+        doc.setDrawColor(207, 83, 34);
+        doc.setLineWidth(1.4);
+        doc.line(margin, y, pageW - margin, y);
+        y += 20;
+        line(heading, 14, { bold: true, gap: 10, color: [150, 60, 20] });
+        line('Bars required: ' + fmt(sectionData.summary.totalBars) + '   ·   Yield: ' + sectionData.summary.yieldPct.toFixed(1) + '%', 9.5, { color: [120, 130, 140], gap: 16 });
       }
 
-      res.layouts.forEach(function (layout) {
-        checkBreak(70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(20, 20, 20);
-        doc.text('Layout ' + layout.id + '  ×' + layout.repetition + '   (' + layout.stockLength + 'mm stock)', margin, y);
-        y += 12;
+      sectionData.byArticle.forEach(function (r) {
+        var res = r.result;
+        checkBreak(60);
+        line(r.group + (r.groupLabel ? '  —  ' + r.groupLabel : ''), 13, { bold: true, gap: 16 });
+        var stockStr = res.requiredStocks.map(function (s) { return s.quantity + '× ' + s.stockLength + 'mm'; }).join(', ');
+        line('Bars required: ' + stockStr + '   ·   Yield: ' + res.yieldPct.toFixed(1) + '%   ·   Cuts: ' + res.totalCuts + '   ·   Waste: ' + res.totalWaste.toFixed(0) + 'mm', 9.5, { color: [100, 110, 120], gap: 14 });
 
-        var barH = 20;
-        var barY = y;
-        var x = margin;
-        var kerfPerCut = layout.cuts > 0 ? layout.kerfWaste / layout.cuts : 0;
-        var tickW = 1.4; // fixed visual width (pt) for the kerf mark, independent of true mm proportion
-        doc.setDrawColor(200, 205, 210);
-        doc.setLineWidth(0.5);
-        doc.rect(margin, barY, contentW, barH);
-        layout.pieces.forEach(function (p) {
-          var w = (p.length / layout.stockLength) * contentW;
-          var rgb = hexToRgb(colorForKey(p.label || p.length));
-          doc.setFillColor(rgb[0], rgb[1], rgb[2]);
-          doc.rect(x, barY, w, barH, 'F');
-          if (w > 22) {
-            doc.setFontSize(7);
-            doc.setTextColor(255, 255, 255);
-            doc.text(String(p.length), x + w / 2, barY + barH / 2 + 2.5, { align: 'center' });
-          }
-          x += w;
-          // Mark the saw-blade kerf allowance charged after this cut as a
-          // thin dark tick between segments, rather than folding it into
-          // one lumped waste block at the end of the bar.
-          if (kerfPerCut > 0) {
-            doc.setFillColor(35, 35, 38);
-            doc.rect(x, barY, tickW, barH, 'F');
-            x += tickW;
-          }
-        });
-        var remW = Math.max(0, margin + contentW - x);
-        if (remW > 0.3) {
-          doc.setFillColor(238, 240, 242);
-          doc.rect(x, barY, remW, barH, 'F');
+        if (res.errors.length) {
+          doc.setTextColor(190, 60, 60);
+          doc.setFontSize(9.5);
+          res.errors.forEach(function (e) { doc.text('⚠ ' + e.message + ' (×' + e.qty + ')', margin, y); y += 13; });
+          y += 4;
         }
-        doc.setDrawColor(200, 205, 210);
-        doc.rect(margin, barY, contentW, barH);
-        y = barY + barH + 12;
 
-        checkBreak(14);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(90, 100, 110);
-        doc.text('Cuts: ' + layout.cuts + '   Kerf: ' + kerfPerCut.toFixed(0) + 'mm/cut (' + layout.kerfWaste + 'mm total)   Remnant: ' + layout.remnant.toFixed(0) + 'mm   Waste: ' + layout.wastePct.toFixed(1) + '%', margin, y);
+        res.layouts.forEach(function (layout) {
+          checkBreak(70);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10.5);
+          doc.setTextColor(20, 20, 20);
+          doc.text('Layout ' + layout.id + '  ×' + layout.repetition + '   (' + layout.stockLength + 'mm stock)', margin, y);
+          y += 12;
+
+          var barH = 20;
+          var barY = y;
+          var x = margin;
+          var kerfPerCut = layout.cuts > 0 ? layout.kerfWaste / layout.cuts : 0;
+          var tickW = 1.4; // fixed visual width (pt) for the kerf mark, independent of true mm proportion
+          doc.setDrawColor(200, 205, 210);
+          doc.setLineWidth(0.5);
+          doc.rect(margin, barY, contentW, barH);
+          layout.pieces.forEach(function (p) {
+            var w = (p.length / layout.stockLength) * contentW;
+            var rgb = hexToRgb(colorForKey(p.label || p.length));
+            doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+            doc.rect(x, barY, w, barH, 'F');
+            if (w > 22) {
+              doc.setFontSize(7);
+              doc.setTextColor(255, 255, 255);
+              doc.text(String(p.length), x + w / 2, barY + barH / 2 + 2.5, { align: 'center' });
+            }
+            x += w;
+            // Mark the saw-blade kerf allowance charged after this cut as a
+            // thin dark tick between segments, rather than folding it into
+            // one lumped waste block at the end of the bar.
+            if (kerfPerCut > 0) {
+              doc.setFillColor(35, 35, 38);
+              doc.rect(x, barY, tickW, barH, 'F');
+              x += tickW;
+            }
+          });
+          var remW = Math.max(0, margin + contentW - x);
+          if (remW > 0.3) {
+            doc.setFillColor(238, 240, 242);
+            doc.rect(x, barY, remW, barH, 'F');
+          }
+          doc.setDrawColor(200, 205, 210);
+          doc.rect(margin, barY, contentW, barH);
+          y = barY + barH + 12;
+
+          checkBreak(14);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(90, 100, 110);
+          doc.text('Cuts: ' + layout.cuts + '   Kerf: ' + kerfPerCut.toFixed(0) + 'mm/cut (' + layout.kerfWaste + 'mm total)   Remnant: ' + layout.remnant.toFixed(0) + 'mm   Waste: ' + layout.wastePct.toFixed(1) + '%', margin, y);
+          y += 18;
+        });
+        y += 6;
+        doc.setDrawColor(230, 233, 236);
+        doc.line(margin, y, pageW - margin, y);
         y += 18;
       });
-      y += 6;
-      doc.setDrawColor(230, 233, 236);
-      doc.line(margin, y, pageW - margin, y);
-      y += 18;
-    });
+    }
+
+    renderSection(data, hasPerSheet ? 'Whole Job — combined' : null);
+
+    if (hasPerSheet) {
+      proj.lastResultsBySheet.sheets.forEach(function (sd) {
+        doc.addPage();
+        y = margin;
+        var sheetData = { computedAt: proj.lastResultsBySheet.computedAt, byArticle: sd.byArticle, summary: sd.summary };
+        renderSection(sheetData, 'Sheet: ' + sd.sheet + ' — optimised separately');
+      });
+    }
 
     // page numbers
     var pageCount = doc.internal.getNumberOfPages();
@@ -2849,7 +3023,7 @@
       stock.articles[article].qty = Math.max(0, stock.articles[article].qty - qty);
       stock.articles[article].updatedAt = Date.now();
       persistStock();
-      renderResults(currentProject().lastResults);
+      renderActiveResults();
       toast('Stock updated — ' + stock.articles[article].qty + ' bars of ' + article + ' left');
     });
   }
@@ -2876,6 +3050,7 @@
     wireDashboard();
     wireStock();
     wireStockDeductButtons();
+    wireResultsViewToggle();
     registerServiceWorkerIfHosted();
   }
 

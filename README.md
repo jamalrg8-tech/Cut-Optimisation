@@ -31,7 +31,16 @@ service worker caches all of them, so the app keeps working offline afterwards
 - **Parts List** — build or import the cutting list for the current job. The
   "Optimise cutting layout" button appears both above and below the list.
 - **Results** — the optimised cutting layout per profile, with an Export
-  Excel / Export PDF report toolbar.
+  Excel / Export PDF report toolbar. When a job's parts came from an Excel
+  workbook with more than one sheet/tab, a **Whole Job / By Sheet** switch
+  appears above the results: *Whole Job* is the combined optimisation
+  across every sheet (same-profile parts from different sheets can share a
+  bar, which is usually the most efficient view); *By Sheet* optimises
+  each source sheet completely on its own, as if it were being cut
+  separately — useful when each sheet is its own door/window that needs
+  its own cut list, even though it can end up using a little more stock in
+  total than cutting everything together. Both views are included
+  automatically in the Excel and PDF exports.
 - **Stock** — the shared bars-on-hand register (see below).
 
 ## Importing from Excel
