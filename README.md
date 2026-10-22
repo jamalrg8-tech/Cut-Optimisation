@@ -26,11 +26,39 @@ service worker caches all of them, so the app keeps working offline afterwards
 
 - **Dashboard** — the home screen: start a new optimisation, jump to job
   settings or the stock register, and see every saved job with Open / Rename
-  / Duplicate / Delete actions.
-- **Parts List** — build or import the cutting list for the current job.
+  / Duplicate / Delete actions (click anywhere on a job's row to open it).
+- **Parts List** — build or import the cutting list for the current job. The
+  "Optimise cutting layout" button appears both above and below the list.
 - **Results** — the optimised cutting layout per profile, with an Export
   Excel / Export PDF report toolbar.
 - **Stock** — the shared bars-on-hand register (see below).
+
+## Importing from Excel
+
+Click **Import Excel** on the Parts List tab and pick a workbook. The import:
+
+- **Reads every sheet in the workbook**, not just the first one — if a
+  workbook has several sheets (e.g. one per door/window elevation, all part
+  of the same system), every sheet that looks like a cutting list is
+  imported and combined into one parts list. Each imported row is tagged
+  with the sheet it came from (visible in the Excel export's "Parts Input"
+  sheet). A sheet that doesn't look like a raw cutting list — a "Summary"/
+  "Totals"/"Report" tab, or any sheet whose columns look like an aggregate
+  report (Yield %, Bars Required, Waste, etc.) rather than raw parts — is
+  skipped automatically rather than imported as garbage data. The import
+  toast tells you how many sheets were used and how many were skipped.
+- **Imports the Position column** when the workbook has one (next to
+  Article No. / Description, or alongside the per-item columns). Values are
+  normalised to "Vertical" or "Horizontal" (abbreviations like "V"/"H" or
+  "Vert"/"Horiz" are recognised too); anything else is kept as typed rather
+  than discarded. Position shows up as an editable dropdown on each row in
+  the Parts List, and as its own column in the Results tab's per-bar parts
+  breakdown and in the Excel export — it's for your reference on the cut
+  list and doesn't affect how the optimiser packs the bars.
+
+You can also paste rows (Job menu → Parts List → Paste rows) using
+`Article No, Description, Length(mm), Qty, Position` — Description, Qty and
+Position are all optional.
 
 ## Stock register
 
@@ -102,7 +130,7 @@ Browsers cache the service worker aggressively by nature, so after editing
 `index.html` bump the version string in `sw.js`:
 
 ```js
-var CACHE_NAME = 'eurolux-cut-optimization-v3';   // was v2
+var CACHE_NAME = 'eurolux-cut-optimization-v5';   // was v4
 ```
 
 That forces every visitor's browser to fetch the new files next time they
@@ -122,7 +150,9 @@ open the app (it activates on the *next* load after the update is fetched).
   a strong, fast heuristic, not a guaranteed mathematically optimal solver,
   same approach used by most commercial cut-list tools.
 - Each Article No. is optimised completely separately, since different
-  profiles are physically different stock.
+  profiles are physically different stock. Position (Vertical/Horizontal)
+  is carried through as reference metadata only — it does not change which
+  bars a piece can be cut from.
 
 ## Data & privacy
 

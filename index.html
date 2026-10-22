@@ -503,10 +503,10 @@
     </div>
     <div class="modal-body">
       <p style="font-size:12.5px; color:var(--text-dim); margin:0 0 10px;">
-        Paste tab or comma separated rows copied from Excel: <code>Article No, Description, Length(mm), Qty</code> (Description and Qty are optional — Qty defaults to 1).
+        Paste tab or comma separated rows copied from Excel: <code>Article No, Description, Length(mm), Qty, Position</code> (Description, Qty and Position are optional — Qty defaults to 1, Position is Vertical/Horizontal).
       </p>
-      <textarea id="pasteArea" rows="10" style="width:100%; padding:9px; border-radius:8px; border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-family:var(--mono); font-size:12.5px;" placeholder="557400	Outer Frame Top	1760	1
-557400	Outer Frame Left / Right	2350	2"></textarea>
+      <textarea id="pasteArea" rows="10" style="width:100%; padding:9px; border-radius:8px; border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-family:var(--mono); font-size:12.5px;" placeholder="557400	Outer Frame Top	1760	1	Horizontal
+557400	Outer Frame Left / Right	2350	2	Vertical"></textarea>
     </div>
     <div class="modal-foot">
       <button class="btn" id="cancelPaste">Cancel</button>
@@ -556,6 +556,7 @@
 <input type="file" id="fileProjectJson" accept="application/json" style="display:none">
 <div class="toast" id="toast"></div>
 
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
@@ -603,7 +604,7 @@
         return;
       }
       for (var i = 0; i < qty; i++) {
-        pieces.push({ partId: p.id, label: p.label, length: len });
+        pieces.push({ partId: p.id, label: p.label, position: p.position || '', length: len });
       }
     });
 
@@ -652,9 +653,15 @@
     bins.forEach(function (b) {
       var sortedPieces = b.pieces.slice().sort(function (x, y) {
         if (y.length !== x.length) return y.length - x.length;
-        return (x.label || '').localeCompare(y.label || '');
+        if (x.label !== y.label) return (x.label || '').localeCompare(y.label || '');
+        return (x.position || '').localeCompare(y.position || '');
       });
-      var sig = b.stockLength + '|' + sortedPieces.map(function (p) { return p.length + ':' + (p.label || ''); }).join(',');
+      // Position is display metadata, not something the packing itself cares
+      // about, but two bars that differ only in which cut is Vertical vs.
+      // Horizontal must NOT be folded into "the same layout" — that would
+      // hide the true position of the later bars behind whichever bar was
+      // seen first. Including position in the signature keeps them distinct.
+      var sig = b.stockLength + '|' + sortedPieces.map(function (p) { return p.length + ':' + (p.label || '') + ':' + (p.position || ''); }).join(',');
 
       if (!layoutMap[sig]) {
         layoutMap[sig] = {
@@ -795,18 +802,41 @@
     return XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
   }
 
+  // "Vertical"/"Horizontal" is what these columns normally contain, but keep
+  // whatever else gets written (abbreviations, "N/A", a third orientation)
+  // rather than silently dropping it.
+  function normalizePosition(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    var low = s.toLowerCase();
+    if (/^v(ert(ical)?)?\.?$/.test(low)) return 'Vertical';
+    if (/^h(oriz(ontal)?)?\.?$/.test(low)) return 'Horizontal';
+    return s;
+  }
+
+  // Sheets that hold an aggregate/report view (e.g. the "Summary" tab these
+  // cut-list workbooks often ship alongside the real per-part sheets) must
+  // never be mistaken for a cutting list — their column headers can
+  // accidentally match the generic "length" detector below (e.g. "Total
+  // Parts Length (mm)"), which would import one bogus "part" per profile
+  // row instead of skipping the sheet. If a candidate header row also has a
+  // column that looks like an aggregate/report metric, reject it.
+  var REPORT_SIGNAL_RE = /(yield|bars\s*required|waste|remnant|stock\s*length\(?s?\)?\s*used)/;
+
   // Look for the "combined multi-item" layout used by many fabrication cut-lists:
-  //   one header row with "Article No." / "Desciption"/"Description"
+  //   one header row with "Article No." / "Desciption"/"Description" (and
+  //   optionally "Position")
   //   a nearby row with "Item 1", "Item 2", ... sub-headers + a "Qty" column
   function detectTailoredHeader(rows) {
     var maxScan = Math.min(rows.length, 15);
     for (var r = 0; r < maxScan; r++) {
       var row = rows[r] || [];
-      var articleCol = -1, descCol = -1;
+      var articleCol = -1, descCol = -1, positionCol = -1;
       row.forEach(function (cell, c) {
         var h = normHeader(cell);
         if (articleCol < 0 && /article/.test(h)) articleCol = c;
         if (descCol < 0 && /desc/.test(h)) descCol = c;
+        if (positionCol < 0 && /position/.test(h)) positionCol = c;
       });
       if (articleCol < 0) continue;
 
@@ -819,16 +849,19 @@
           var h = normHeader(cell);
           if (/^item\s*\d+/.test(h)) itemCols.push({ col: c, label: String(cell).trim() });
           if (qtyCol < 0 && /^qty/.test(h)) qtyCol = c;
+          // Position sometimes sits in the item-column sub-header row instead
+          // of the main article/description row.
+          if (positionCol < 0 && /position/.test(h)) positionCol = c;
         });
         if (itemCols.length) {
-          return { articleCol: articleCol, descCol: descCol, qtyCol: qtyCol, itemCols: itemCols, startRow: Math.max(r, r2) + 1 };
+          return { articleCol: articleCol, descCol: descCol, positionCol: positionCol, qtyCol: qtyCol, itemCols: itemCols, startRow: Math.max(r, r2) + 1 };
         }
       }
     }
     return null;
   }
 
-  function parseTailored(rows, header) {
+  function parseTailored(rows, header, sheetName) {
     var parts = [];
     var skipLabels = { width: true, height: true };
     for (var i = header.startRow; i < rows.length; i++) {
@@ -840,6 +873,7 @@
       if (skipLabels[descNorm]) continue;
       var qty = header.qtyCol >= 0 ? Number(row[header.qtyCol]) : 1;
       if (!(qty > 0)) qty = 1;
+      var position = header.positionCol >= 0 ? normalizePosition(row[header.positionCol]) : '';
 
       header.itemCols.forEach(function (ic) {
         var raw = row[ic.col];
@@ -850,7 +884,9 @@
           description: desc == null ? '' : String(desc).trim(),
           length: len,
           qty: qty,
-          tag: ic.label
+          tag: ic.label,
+          position: position,
+          sheet: sheetName || ''
         });
       });
     }
@@ -861,23 +897,30 @@
     var maxScan = Math.min(rows.length, 15);
     for (var r = 0; r < maxScan; r++) {
       var row = rows[r] || [];
-      var articleCol = -1, descCol = -1, lengthCol = -1, qtyCol = -1;
+      var articleCol = -1, descCol = -1, lengthCol = -1, qtyCol = -1, positionCol = -1;
+      var hasReportSignal = false;
       row.forEach(function (cell, c) {
         var h = normHeader(cell);
         if (!h) return;
+        if (REPORT_SIGNAL_RE.test(h)) hasReportSignal = true;
         if (articleCol < 0 && /(article|profile\s*no|profile\s*code|item\s*no|code)/.test(h)) articleCol = c;
         if (descCol < 0 && /(desc|profile\s*name|name)/.test(h)) descCol = c;
         if (lengthCol < 0 && /(cutting\s*length|cut\s*length|length)/.test(h)) lengthCol = c;
         if (qtyCol < 0 && /(qty|quantity|pcs|nos\b)/.test(h)) qtyCol = c;
+        if (positionCol < 0 && /position/.test(h)) positionCol = c;
       });
+      // A report/summary sheet (yield, bars required, waste...) is never a
+      // raw cutting list, even if one of its columns happens to contain the
+      // word "length" — skip this header candidate rather than misparsing it.
+      if (hasReportSignal) continue;
       if (lengthCol >= 0) {
-        return { articleCol: articleCol, descCol: descCol, lengthCol: lengthCol, qtyCol: qtyCol, startRow: r + 1 };
+        return { articleCol: articleCol, descCol: descCol, lengthCol: lengthCol, qtyCol: qtyCol, positionCol: positionCol, startRow: r + 1 };
       }
     }
     return null;
   }
 
-  function parseGeneric(rows, header) {
+  function parseGeneric(rows, header, sheetName) {
     var parts = [];
     for (var i = header.startRow; i < rows.length; i++) {
       var row = rows[i] || [];
@@ -887,52 +930,83 @@
       if (!(qty > 0)) qty = 1;
       var article = header.articleCol >= 0 ? row[header.articleCol] : '';
       var desc = header.descCol >= 0 ? row[header.descCol] : '';
+      var position = header.positionCol >= 0 ? normalizePosition(row[header.positionCol]) : '';
       parts.push({
         article: article == null ? '' : String(article).trim(),
         description: desc == null ? '' : String(desc).trim(),
         length: len,
         qty: qty,
-        tag: ''
+        tag: '',
+        position: position,
+        sheet: sheetName || ''
       });
     }
     return parts;
   }
 
+  // Sheet names that hold an aggregate/report view rather than a raw cutting
+  // list — never attempted, regardless of what their columns look like.
+  var SKIP_SHEET_NAME_RE = /^\s*(summary|totals?|overview|report|cover\s*page)\s*$/i;
+
   /**
+   * Parses every sheet in the workbook that looks like a cutting list (the
+   * same system/elevation can be split across several sheets, e.g. one per
+   * door/window type) and concatenates their parts into a single list, each
+   * tagged with the sheet it came from. A sheet that doesn't match either
+   * known layout (or is named like a summary/report tab) is skipped rather
+   * than failing the whole import.
+   *
    * @param {Workbook} wb - SheetJS workbook
-   * @returns {{parts:Array, sheetUsed:string, mode:string}}
+   * @returns {{parts:Array, sheetsUsed:Array<{name:string,mode:string,count:number}>, sheetsSkipped:Array<string>, mode:string}}
    */
   function parseWorkbook(wb) {
     var sheetNames = wb.SheetNames || [];
-    // Prefer a sheet literally named "optimisation"/"optimization" for the tailored parser
-    var preferred = sheetNames.filter(function (n) { return /optimi[sz]ation/i.test(n); });
-    var order = preferred.concat(sheetNames.filter(function (n) { return preferred.indexOf(n) < 0; }));
+    var allParts = [];
+    var sheetsUsed = [];
+    var sheetsSkipped = [];
 
-    for (var i = 0; i < order.length; i++) {
-      var name = order[i];
+    sheetNames.forEach(function (name) {
+      if (SKIP_SHEET_NAME_RE.test(name)) { sheetsSkipped.push(name); return; }
+
       var rows = sheetToRows(wb.Sheets[name]);
+
       var header = detectTailoredHeader(rows);
       if (header) {
-        var parts = parseTailored(rows, header);
-        if (parts.length) return { parts: parts, sheetUsed: name, mode: 'tailored' };
+        var parts = parseTailored(rows, header, name);
+        if (parts.length) {
+          allParts = allParts.concat(parts);
+          sheetsUsed.push({ name: name, mode: 'tailored', count: parts.length });
+          return;
+        }
       }
-    }
 
-    // Fallback: generic single-length-column parser, try each sheet in order until one yields rows
-    for (var j = 0; j < sheetNames.length; j++) {
-      var name2 = sheetNames[j];
-      var rows2 = sheetToRows(wb.Sheets[name2]);
-      var gh = detectGenericHeader(rows2);
+      var gh = detectGenericHeader(rows);
       if (gh) {
-        var parts2 = parseGeneric(rows2, gh);
-        if (parts2.length) return { parts: parts2, sheetUsed: name2, mode: 'generic' };
+        var parts2 = parseGeneric(rows, gh, name);
+        if (parts2.length) {
+          allParts = allParts.concat(parts2);
+          sheetsUsed.push({ name: name, mode: 'generic', count: parts2.length });
+          return;
+        }
       }
-    }
 
-    return { parts: [], sheetUsed: null, mode: 'none' };
+      sheetsSkipped.push(name);
+    });
+
+    return {
+      parts: allParts,
+      sheetsUsed: sheetsUsed,
+      sheetsSkipped: sheetsSkipped,
+      mode: sheetsUsed.length > 1 ? 'multi' : (sheetsUsed.length === 1 ? sheetsUsed[0].mode : 'none')
+    };
   }
 
-  var ExcelImport = { parseWorkbook: parseWorkbook, detectTailoredHeader: detectTailoredHeader, detectGenericHeader: detectGenericHeader };
+  var ExcelImport = {
+    parseWorkbook: parseWorkbook,
+    detectTailoredHeader: detectTailoredHeader,
+    detectGenericHeader: detectGenericHeader,
+    normalizePosition: normalizePosition
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = ExcelImport;
   else root.ExcelImport = ExcelImport;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1306,7 +1380,7 @@
   /* ============================================================
    * Parts table
    * ==========================================================*/
-  var PART_FIELDS = ['article', 'description', 'length', 'qty', 'tag'];
+  var PART_FIELDS = ['article', 'description', 'length', 'qty', 'tag', 'position'];
 
   function addPart(data) {
     var proj = currentProject();
@@ -1316,7 +1390,9 @@
       description: data.description || '',
       length: data.length != null ? data.length : '',
       qty: data.qty != null ? data.qty : 1,
-      tag: data.tag || ''
+      tag: data.tag || '',
+      position: data.position || '',
+      sheet: data.sheet || ''
     });
     if (data.article) ensureArticleInStock(data.article, data.description);
   }
@@ -1332,6 +1408,12 @@
       return;
     }
     var rows = proj.parts.map(function (p, i) {
+      var pos = p.position || '';
+      var posOptions = ['', 'Vertical', 'Horizontal'];
+      if (pos && posOptions.indexOf(pos) < 0) posOptions.push(pos);
+      var posSelect = '<select data-field="position">' + posOptions.map(function (o) {
+        return '<option value="' + escapeHtml(o) + '"' + (o === pos ? ' selected' : '') + '>' + (o === '' ? '—' : escapeHtml(o)) + '</option>';
+      }).join('') + '</select>';
       return (
         '<tr data-id="' + p.id + '">' +
         '<td style="color:var(--text-faint); font-size:11.5px;">' + (i + 1) + '</td>' +
@@ -1339,6 +1421,7 @@
         '<td><input data-field="description" value="' + escapeHtml(p.description) + '" placeholder="Profile name"></td>' +
         '<td class="num"><input data-field="length" type="number" min="0" step="0.1" value="' + escapeHtml(p.length) + '" placeholder="mm"></td>' +
         '<td class="num"><input data-field="qty" type="number" min="1" step="1" value="' + escapeHtml(p.qty) + '"></td>' +
+        '<td>' + posSelect + '</td>' +
         '<td><input data-field="tag" value="' + escapeHtml(p.tag) + '" placeholder="optional"></td>' +
         '<td><button class="row-del" title="Delete row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg></button></td>' +
         '</tr>'
@@ -1348,7 +1431,7 @@
     wrap.innerHTML =
       '<div style="overflow-x:auto;"><table class="data"><thead><tr>' +
       '<th style="width:30px;">#</th><th style="min-width:110px;">Article No.</th><th style="min-width:160px;">Description</th>' +
-      '<th style="width:100px;">Length (mm)</th><th style="width:70px;">Qty</th><th style="min-width:110px;">Tag / position</th><th style="width:34px;"></th>' +
+      '<th style="width:100px;">Length (mm)</th><th style="width:70px;">Qty</th><th style="width:110px;">Position</th><th style="min-width:100px;">Tag</th><th style="width:34px;"></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
@@ -1417,7 +1500,7 @@
   function wirePartsTable() {
     var wrap = document.getElementById('partsTableWrap');
     wrap.addEventListener('input', function (e) {
-      var input = e.target.closest('input[data-field]');
+      var input = e.target.closest('input[data-field], select[data-field]');
       if (!input) return;
       var tr = input.closest('tr');
       var id = tr.getAttribute('data-id');
@@ -1552,9 +1635,10 @@
       var cells = line.indexOf('\t') >= 0 ? line.split('\t') : line.split(',');
       cells = cells.map(function (c) { return c.trim(); });
       if (!cells.length) return;
-      // Heuristic: Article, Description, Length, Qty  (Description/Qty optional)
+      // Heuristic: Article, Description, Length, Qty, Position  (Description/Qty/Position optional)
       var article = cells[0] || '';
       var description = '', length = NaN, qty = 1;
+      var position = cells.length >= 5 && typeof ExcelImport !== 'undefined' ? ExcelImport.normalizePosition(cells[4]) : '';
       if (cells.length >= 4) {
         description = cells[1];
         length = parseNum(cells[2]);
@@ -1575,7 +1659,7 @@
         article = '';
       }
       if (isNaN(length) || length <= 0) return;
-      addPart({ article: article, description: description, length: length, qty: qty });
+      addPart({ article: article, description: description, length: length, qty: qty, position: position });
       added++;
     });
     return added;
@@ -1601,6 +1685,7 @@
         group: article,
         groupLabel: p.description || '',
         label: (p.description || article) + (p.tag ? ' \u00b7 ' + p.tag : ''),
+        position: p.position || '',
         length: parseNum(p.length),
         qty: parseInt(p.qty, 10)
       };
@@ -1790,12 +1875,13 @@
     var segs = '';
     layout.pieces.forEach(function (p) {
       var color = colorForKey(p.label || p.length);
+      var posSuffix = p.position ? ' \u00b7 ' + p.position : '';
       // flex-grow set to the piece's true mm length so segments stay
       // proportional to each other; the fixed-width kerf ticks below take
       // their space out of the row independently of this ratio.
       segs += '<div class="bar-seg" style="flex:' + Math.max(p.length, 1) + ' 1 0%; background:' + color + ';">' +
         '<span>' + fmt(p.length) + '</span>' +
-        '<span class="seg-tip">' + escapeHtml(p.label || '') + ' \u2014 ' + fmt(p.length) + 'mm</span>' +
+        '<span class="seg-tip">' + escapeHtml(p.label || '') + posSuffix + ' \u2014 ' + fmt(p.length) + 'mm</span>' +
         '</div>';
       // Every piece placed consumes a saw-blade kerf allowance right after
       // it (this optimizer charges kerf once per cut, including the last
@@ -1809,14 +1895,14 @@
     if (remPct > 0.05) segs += '<div class="bar-seg remnant" style="flex:' + Math.max(layout.remnant, 1) + ' 1 0%;">' + (remPct > 4 ? fmt(layout.remnant) : '') + '</div>';
 
     var partsRows = layout.pieces.reduce(function (acc, p) {
-      var key = p.length + '|' + (p.label || '');
-      if (!acc.map[key]) { acc.map[key] = { length: p.length, label: p.label, qty: 0 }; acc.order.push(key); }
+      var key = p.length + '|' + (p.label || '') + '|' + (p.position || '');
+      if (!acc.map[key]) { acc.map[key] = { length: p.length, label: p.label, position: p.position || '', qty: 0 }; acc.order.push(key); }
       acc.map[key].qty++;
       return acc;
     }, { map: {}, order: [] });
     var partsTable = partsRows.order.map(function (k) {
       var row = partsRows.map[k];
-      return '<tr><td>' + fmt(row.length) + ' mm</td><td>' + escapeHtml(row.label || '') + '</td><td class="num">' + row.qty + '</td></tr>';
+      return '<tr><td>' + fmt(row.length) + ' mm</td><td>' + escapeHtml(row.label || '') + '</td><td>' + escapeHtml(row.position || '—') + '</td><td class="num">' + row.qty + '</td></tr>';
     }).join('');
 
     return (
@@ -1828,7 +1914,7 @@
       '</div>' +
       '<div class="bar-visual">' + segs + '</div>' +
       (kerfPerCut > 0 ? '<div class="bar-caption"><span class="tick-swatch"></span>Dark tick = ' + fmt(kerfPerCut) + 'mm saw-blade kerf, allowed after every cut</div>' : '') +
-      '<div class="layout-parts"><table><thead><tr><th>Length</th><th>Label</th><th>Qty</th></tr></thead><tbody>' + partsTable + '</tbody></table></div>' +
+      '<div class="layout-parts"><table><thead><tr><th>Length</th><th>Label</th><th>Position</th><th>Qty</th></tr></thead><tbody>' + partsTable + '</tbody></table></div>' +
       '<div class="layout-stats">' +
       '<span>Cuts: <b>' + layout.cuts + '</b></span>' +
       '<span>Kerf waste: <b>' + fmt(layout.kerfWaste) + ' mm</b></span> <span class="hint">(' + fmt(kerfPerCut) + 'mm × ' + layout.cuts + ' cuts)</span>' +
@@ -2123,7 +2209,20 @@
         renderPartsTable();
         renderProfilesTable();
         renderTotals();
-        toast('Imported ' + res.parts.length + ' part' + (res.parts.length === 1 ? '' : 's') + ' from "' + res.sheetUsed + '"');
+
+        var sheetCount = res.sheetsUsed.length;
+        var msg = 'Imported ' + res.parts.length + ' part' + (res.parts.length === 1 ? '' : 's');
+        if (sheetCount <= 1) {
+          msg += sheetCount === 1 ? ' from "' + res.sheetsUsed[0].name + '"' : '';
+        } else if (sheetCount <= 5) {
+          msg += ' from ' + sheetCount + ' sheets (' + res.sheetsUsed.map(function (s) { return s.name + ': ' + s.count; }).join(', ') + ')';
+        } else {
+          msg += ' from ' + sheetCount + ' sheets';
+        }
+        if (res.sheetsSkipped.length) {
+          msg += ' — skipped ' + res.sheetsSkipped.length + ' sheet' + (res.sheetsSkipped.length === 1 ? '' : 's');
+        }
+        toast(msg);
       } catch (err) {
         console.error(err);
         toast('Could not read that Excel file (' + (err && err.message ? err.message : 'unknown error') + ')');
@@ -2183,17 +2282,17 @@
         var grouped = {};
         var order = [];
         l.pieces.forEach(function (p) {
-          var k = p.length + '|' + (p.label || '');
-          if (!grouped[k]) { grouped[k] = { length: p.length, label: p.label, qty: 0 }; order.push(k); }
+          var k = p.length + '|' + (p.label || '') + '|' + (p.position || '');
+          if (!grouped[k]) { grouped[k] = { length: p.length, label: p.label, position: p.position || '', qty: 0 }; order.push(k); }
           grouped[k].qty++;
         });
-        var partsStr = order.map(function (k) { var g = grouped[k]; return g.qty + '× ' + g.length + 'mm' + (g.label ? ' (' + g.label + ')' : ''); }).join('\n');
+        var partsStr = order.map(function (k) { var g = grouped[k]; return g.qty + '× ' + g.length + 'mm' + (g.label ? ' (' + g.label + ')' : '') + (g.position ? ' [' + g.position + ']' : ''); }).join('\n');
         layoutsAoa.push([r.group, r.groupLabel || '', l.id, l.repetition, l.stockLength, partsStr, l.cuts, l.kerfWaste, Number(l.remnant.toFixed(0)), Number(l.wastePct.toFixed(1))]);
       });
     });
 
-    var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Tag / position']];
-    proj.parts.forEach(function (p) { partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.tag]); });
+    var partsAoa = [['Article No.', 'Description', 'Length (mm)', 'Qty', 'Position', 'Tag', 'Source Sheet']];
+    proj.parts.forEach(function (p) { partsAoa.push([p.article, p.description, parseNum(p.length) || 0, parseInt(p.qty, 10) || 0, p.position || '', p.tag, p.sheet || '']); });
 
     var wb = XLSX.utils.book_new();
     var ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);

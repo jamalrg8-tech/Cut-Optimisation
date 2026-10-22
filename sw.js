@@ -3,7 +3,7 @@
  * keeps working offline after the first successful load. Bump CACHE_NAME
  * whenever the app shell files change so old caches are cleared out.
  */
-var CACHE_NAME = 'eurolux-cut-optimization-v3';
+var CACHE_NAME = 'eurolux-cut-optimization-v5';
 var APP_SHELL = [
   './',
   './index.html',
